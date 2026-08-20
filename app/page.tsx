@@ -71,7 +71,7 @@ export default function GastronomicSystem() {
     setSelectedOrderToPrint(order);
     setTimeout(() => {
       window.print();
-    }, 300);
+    }, 600);
   };
 
   const addItemToCart = () => {
@@ -128,35 +128,27 @@ export default function GastronomicSystem() {
 
   return (
     <>
-      {/* ESTILOS DE IMPRESIÓN COMPACTOS (AHORRO DE PAPEL) */}
       <style jsx global>{`
         @media screen {
-          #thermal-receipt {
+          .print-only {
             display: none !important;
           }
         }
         @media print {
-          body * {
-            visibility: hidden !important;
+          .no-print {
+            display: none !important;
           }
-          #thermal-receipt,
-          #thermal-receipt * {
-            visibility: visible !important;
+          .print-only {
             display: block !important;
-          }
-          #thermal-receipt {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
             width: 100% !important;
             max-width: 280px !important;
             margin: 0 !important;
             padding: 4px !important;
             color: #000 !important;
             background: #fff !important;
-            font-family: 'Courier New', monospace !important;
-            font-size: 12px !important;
-            line-height: 1.25 !important;
+            font-family: 'Courier New', Courier, monospace !important;
+            font-size: 13px !important;
+            line-height: 1.3 !important;
           }
           @page {
             margin: 0;
@@ -165,58 +157,60 @@ export default function GastronomicSystem() {
         }
       `}</style>
 
-      {/* FORMATO TICKET TÉRMICO */}
-      {selectedOrderToPrint && (
-        <div id="thermal-receipt">
-          <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '15px' }}>
-            🍣 SAKESU SUSHI
-          </div>
-          <div style={{ textAlign: 'center', fontSize: '10px', marginTop: '2px' }}>
-            {new Date(selectedOrderToPrint.created_at || Date.now()).toLocaleDateString('es-CL')} -{' '}
-            {new Date(selectedOrderToPrint.created_at || Date.now()).toLocaleTimeString('es-CL', {
-              hour: '2-digit',
-              minute: '2-digit'
-            })}
-          </div>
-          <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }}></div>
-          <div style={{ fontSize: '15px', fontWeight: 'bold' }}>
-            ORDEN: #{selectedOrderToPrint.daily_order_number} ({selectedOrderToPrint.order_type})
-          </div>
-          {selectedOrderToPrint.delivery_address && (
-            <div style={{ fontSize: '11px', marginTop: '2px' }}>
-              Dir: {selectedOrderToPrint.delivery_address}
+      {/* TICKET PARA IMPRESIÓN (SOLO VISIBLE AL IMPRIMIR) */}
+      <div className="print-only">
+        {selectedOrderToPrint && (
+          <div>
+            <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '16px' }}>
+              SAKESU SUSHI
             </div>
-          )}
-          <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }}></div>
-
-          <div style={{ margin: '4px 0' }}>
-            {selectedOrderToPrint.order_items?.map((item, idx) => (
-              <div key={idx} style={{ marginBottom: '4px' }}>
-                <div style={{ fontWeight: 'bold', fontSize: '13px' }}>
-                  {item.quantity}x {item.product_name}
-                </div>
-                {item.special_notes && (
-                  <div style={{ fontSize: '11px', fontStyle: 'italic', paddingLeft: '6px' }}>
-                    ** {item.special_notes}
-                  </div>
-                )}
+            <div style={{ textAlign: 'center', fontSize: '11px', marginTop: '2px' }}>
+              {new Date(selectedOrderToPrint.created_at || Date.now()).toLocaleDateString('es-CL')} -{' '}
+              {new Date(selectedOrderToPrint.created_at || Date.now()).toLocaleTimeString('es-CL', {
+                hour: '2-digit',
+                minute: '2-digit'
+              })}
+            </div>
+            <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }}></div>
+            <div style={{ fontSize: '16px', fontWeight: 'bold' }}>
+              ORDEN: #{selectedOrderToPrint.daily_order_number} ({selectedOrderToPrint.order_type})
+            </div>
+            {selectedOrderToPrint.delivery_address && (
+              <div style={{ fontSize: '12px', marginTop: '2px' }}>
+                📍 {selectedOrderToPrint.delivery_address}
               </div>
-            ))}
-          </div>
+            )}
+            <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }}></div>
 
-          <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }}></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '13px' }}>
-            <span>TOTAL:</span>
-            <span>${selectedOrderToPrint.total_amount?.toLocaleString('es-CL')}</span>
-          </div>
-          <div style={{ textAlign: 'center', marginTop: '6px', fontSize: '10px' }}>
-            .
-          </div>
-        </div>
-      )}
+            <div style={{ margin: '6px 0' }}>
+              {selectedOrderToPrint.order_items?.map((item, idx) => (
+                <div key={idx} style={{ marginBottom: '6px' }}>
+                  <div style={{ fontWeight: 'bold', fontSize: '14px' }}>
+                    {item.quantity}x {item.product_name}
+                  </div>
+                  {item.special_notes && (
+                    <div style={{ fontSize: '11px', fontStyle: 'italic', paddingLeft: '8px' }}>
+                      ** {item.special_notes}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
 
-      {/* INTERFAZ DEL SISTEMA */}
-      <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', fontFamily: 'system-ui, sans-serif' }}>
+            <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }}></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '14px' }}>
+              <span>TOTAL:</span>
+              <span>${selectedOrderToPrint.total_amount?.toLocaleString('es-CL')}</span>
+            </div>
+            <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '11px' }}>
+              - Fin de comanda -
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* PANTALLA WEB NORMAL */}
+      <div className="no-print" style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', fontFamily: 'system-ui, sans-serif' }}>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', backgroundColor: '#1e293b', borderBottom: '1px solid #334155' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontSize: '22px' }}>🍣</span>
