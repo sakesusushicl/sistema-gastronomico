@@ -66,20 +66,27 @@ export default function GastronomicSystem() {
     fetchOrders();
   };
 
-  // Función de impresión infalible mediante ventana limpia
-  const printDirectReceipt = (order: Order) => {
-    const printWindow = window.open('', '_blank', 'width=350,height=600');
-    if (!printWindow) {
-      alert('Por favor permite las ventanas emergentes en tu navegador para imprimir.');
-      return;
-    }
+  // Impresión mediante iframe nativo
+  const printOrderDirect = (order: Order) => {
+    const existingIframe = document.getElementById('receipt-print-iframe');
+    if (existingIframe) existingIframe.remove();
+
+    const iframe = document.createElement('iframe');
+    iframe.id = 'receipt-print-iframe';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
 
     const itemsHtml = (order.order_items || [])
       .map(
         (it) => `
-        <div style="margin-bottom: 5px;">
-          <div style="font-size: 14px; font-weight: bold;">${it.quantity}x ${it.product_name}</div>
-          ${it.special_notes ? `<div style="font-size: 11px; font-style: italic; padding-left: 8px;">** ${it.special_notes}</div>` : ''}
+        <div style="margin-bottom: 6px;">
+          <div style="font-size: 15px; font-weight: bold;">${it.quantity}x ${it.product_name}</div>
+          ${it.special_notes ? `<div style="font-size: 12px; font-style: italic; padding-left: 6px;">** ${it.special_notes}</div>` : ''}
         </div>
       `
       )
@@ -91,55 +98,60 @@ export default function GastronomicSystem() {
       minute: '2-digit'
     });
 
-    const ticketContent = `
+    const doc = iframe.contentWindow?.document;
+    if (!doc) return;
+
+    doc.open();
+    doc.write(`
       <!DOCTYPE html>
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>Comanda #${order.daily_order_number}</title>
           <style>
-            @page { margin: 0; size: auto; }
+            @page {
+              margin: 0;
+              size: auto;
+            }
             body {
               font-family: 'Courier New', Courier, monospace;
-              width: 270px;
-              margin: 0;
-              padding: 6px;
+              width: 72mm;
+              margin: 0 auto;
+              padding: 4mm;
               color: #000;
               background: #fff;
+              font-size: 13px;
+              line-height: 1.25;
             }
             .center { text-align: center; }
             .bold { font-weight: bold; }
-            .line { border-top: 1px dashed #000; margin: 5px 0; }
+            .divider { border-top: 1px dashed #000; margin: 6px 0; }
             .row { display: flex; justify-content: space-between; }
           </style>
         </head>
         <body>
-          <div class="center bold" style="font-size: 16px;">SAKESU SUSHI</div>
-          <div class="center" style="font-size: 11px;">${formattedDate} - ${formattedTime}</div>
-          <div class="line"></div>
-          <div class="bold" style="font-size: 16px;">ORDEN: #${order.daily_order_number} (${order.order_type})</div>
-          ${order.delivery_address ? `<div style="font-size: 11px; margin-top: 2px;">Dir: ${order.delivery_address}</div>` : ''}
-          <div class="line"></div>
-          <div>${itemsHtml}</div>
-          <div class="line"></div>
-          <div class="row bold" style="font-size: 14px;">
+          <div class="center bold" style="font-size: 17px;">SAKESU SUSHI</div>
+          <div class="center" style="font-size: 11px; margin-top: 2px;">${formattedDate} - ${formattedTime}</div>
+          <div class="divider"></div>
+          <div class="bold" style="font-size: 17px;">ORDEN: #${order.daily_order_number}</div>
+          <div class="bold" style="font-size: 13px;">TIPO: ${order.order_type}</div>
+          ${order.delivery_address ? `<div style="font-size: 12px; margin-top: 3px;">DIR: ${order.delivery_address}</div>` : ''}
+          <div class="divider"></div>
+          <div style="margin: 6px 0;">${itemsHtml}</div>
+          <div class="divider"></div>
+          <div class="row bold" style="font-size: 15px;">
             <span>TOTAL:</span>
             <span>$${order.total_amount?.toLocaleString('es-CL')}</span>
           </div>
-          <div class="center" style="margin-top: 8px; font-size: 10px;">- Comanda Cocina -</div>
-          <script>
-            window.onload = function() {
-              window.print();
-              setTimeout(function() { window.close(); }, 500);
-            };
-          </script>
+          <div class="center" style="margin-top: 10px; font-size: 11px;">- Comanda de Cocina -</div>
         </body>
       </html>
-    `;
+    `);
+    doc.close();
 
-    printWindow.document.open();
-    printWindow.document.write(ticketContent);
-    printWindow.document.close();
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    }, 400);
   };
 
   const addItemToCart = () => {
@@ -189,7 +201,7 @@ export default function GastronomicSystem() {
       setDeliveryAddress('');
       setActiveTab('kds');
       fetchOrders();
-      printDirectReceipt(fullOrder);
+      printOrderDirect(fullOrder);
     }
     setIsSubmitting(false);
   };
@@ -230,7 +242,7 @@ export default function GastronomicSystem() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '22px', fontWeight: 'bold', color: '#38bdf8' }}>#{order.daily_order_number}</span>
                     <div style={{ display: 'flex', gap: '6px' }}>
-                      <button onClick={() => printDirectReceipt(order)} style={{ backgroundColor: '#334155', color: '#fff', border: '1px solid #475569', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '12px' }}>
+                      <button onClick={() => printOrderDirect(order)} style={{ backgroundColor: '#334155', color: '#fff', border: '1px solid #475569', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '12px' }}>
                         🖨️ Imprimir
                       </button>
                       <span style={{ fontSize: '11px', backgroundColor: '#334155', padding: '4px 6px', borderRadius: '4px' }}>{order.order_type}</span>
