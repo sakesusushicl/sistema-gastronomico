@@ -66,27 +66,39 @@ export default function GastronomicSystem() {
     fetchOrders();
   };
 
-  // Función de apertura en ventana emergente nativa
-  const printDirectTicket = (order: Order) => {
-    const w = window.open('', '_blank', 'width=360,height=600');
+  // Función de impresión con formato gastronómico estandarizado
+  const printProfessionalTicket = (order: Order) => {
+    const w = window.open('', '_blank', 'width=380,height=600');
     if (!w) {
-      alert('Por favor habilita las ventanas emergentes en tu navegador.');
+      alert('Por favor habilita las ventanas emergentes para imprimir.');
       return;
     }
 
     const itemsRows = (order.order_items || [])
       .map(
         (it) => `
-        <div style="margin-bottom: 6px;">
-          <div style="font-size: 15px; font-weight: bold; color: #000;">${it.quantity}x ${it.product_name}</div>
-          ${it.special_notes ? `<div style="font-size: 12px; font-style: italic; color: #000; padding-left: 6px;">** ${it.special_notes}</div>` : ''}
+        <div style="margin-bottom: 8px;">
+          <div style="font-size: 15px; font-weight: 800; display: flex; justify-content: space-between;">
+            <span>[ ${it.quantity} ] ${it.product_name.toUpperCase()}</span>
+          </div>
+          ${
+            it.special_notes
+              ? `<div style="font-size: 13px; font-weight: bold; padding-left: 10px; margin-top: 2px;">
+                  >> NOTA: ${it.special_notes.toUpperCase()}
+                 </div>`
+              : ''
+          }
         </div>
       `
       )
       .join('');
 
-    const formattedDate = new Date(order.created_at || Date.now()).toLocaleDateString('es-CL');
-    const formattedTime = new Date(order.created_at || Date.now()).toLocaleTimeString('es-CL', {
+    const fecha = new Date(order.created_at || Date.now()).toLocaleDateString('es-CL', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+    const hora = new Date(order.created_at || Date.now()).toLocaleTimeString('es-CL', {
       hour: '2-digit',
       minute: '2-digit'
     });
@@ -95,56 +107,93 @@ export default function GastronomicSystem() {
       <!DOCTYPE html>
       <html>
         <head>
+          <meta charset="utf-8" />
           <title>Ticket #${order.daily_order_number}</title>
           <style>
-            @page { margin: 0; size: auto; }
-            * { box-sizing: border-box; }
+            @page {
+              margin: 0;
+              size: auto;
+            }
+            * {
+              box-sizing: border-box;
+              margin: 0;
+              padding: 0;
+            }
             body {
-              font-family: 'Courier New', Courier, monospace;
+              font-family: Arial, Helvetica, sans-serif;
               width: 72mm;
               margin: 0 auto;
-              padding: 6px;
-              color: #000 !important;
-              background: #fff !important;
+              padding: 4mm 2mm;
+              color: #000;
+              background: #fff;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
             }
             .center { text-align: center; }
-            .bold { font-weight: bold; }
-            .divider { border-top: 1px dashed #000; margin: 6px 0; }
-            .row { display: flex; justify-content: space-between; }
-            .btn-print {
-              display: block;
-              width: 100%;
-              padding: 10px;
-              margin-bottom: 12px;
-              background-color: #2563eb;
-              color: #fff;
-              font-weight: bold;
-              border: none;
-              border-radius: 6px;
-              cursor: pointer;
+            .bold { font-weight: 900; }
+            .divider-solid { border-top: 2px solid #000; margin: 6px 0; }
+            .divider-dashed { border-top: 1px dashed #000; margin: 6px 0; }
+            .row { display: flex; justify-content: space-between; align-items: center; }
+            .order-badge {
+              font-size: 22px;
+              font-weight: 900;
+              text-align: center;
+              padding: 4px 0;
+            }
+            .type-badge {
+              font-size: 14px;
+              font-weight: 800;
+              text-align: center;
+              letter-spacing: 1px;
             }
             @media print {
-              .btn-print { display: none !important; }
-              body { padding: 0 !important; width: 100% !important; }
+              body {
+                width: 100% !important;
+                padding: 2mm 0 !important;
+              }
             }
           </style>
         </head>
         <body>
-          <button class="btn-print" onclick="window.print()">🖨️ PULSA AQUÍ PARA IMPRIMIR</button>
-          <div class="center bold" style="font-size: 18px;">SAKESU SUSHI</div>
-          <div class="center" style="font-size: 11px; margin-top: 2px;">${formattedDate} - ${formattedTime}</div>
-          <div class="divider"></div>
-          <div class="bold" style="font-size: 18px;">ORDEN: #${order.daily_order_number}</div>
-          <div class="bold" style="font-size: 14px;">TIPO: ${order.order_type}</div>
-          ${order.delivery_address ? `<div style="font-size: 12px; margin-top: 3px;">DIR: ${order.delivery_address}</div>` : ''}
-          <div class="divider"></div>
-          <div style="margin: 6px 0;">${itemsRows}</div>
-          <div class="divider"></div>
-          <div class="row bold" style="font-size: 15px;">
+          <div class="center bold" style="font-size: 18px; letter-spacing: 0.5px;">SAKESU SUSHI</div>
+          <div class="center" style="font-size: 11px; margin-top: 1px;">COMANDA DE PRODUCCIÓN</div>
+          
+          <div class="divider-solid"></div>
+          
+          <div class="order-badge">ORDEN #${order.daily_order_number}</div>
+          <div class="type-badge">*** ${order.order_type === 'DELIVERY' ? 'SERVICIO DELIVERY' : 'RETIRO EN LOCAL'} ***</div>
+          
+          <div class="divider-dashed"></div>
+
+          <div style="font-size: 11px; line-height: 1.3;">
+            <div><strong>Fecha:</strong> ${fecha} &nbsp;&nbsp; <strong>Hora:</strong> ${hora}</div>
+            ${order.delivery_address ? `<div style="margin-top: 2px;"><strong>Dirección:</strong> ${order.delivery_address}</div>` : ''}
+          </div>
+
+          <div class="divider-solid"></div>
+          
+          <div style="font-size: 12px; font-weight: bold; margin-bottom: 6px;">DETALLE DE PRODUCTOS:</div>
+          <div>${itemsRows}</div>
+
+          <div class="divider-solid"></div>
+          
+          <div class="row bold" style="font-size: 16px; padding-top: 2px;">
             <span>TOTAL:</span>
             <span>$${order.total_amount?.toLocaleString('es-CL')}</span>
           </div>
-          <div class="center" style="margin-top: 10px; font-size: 11px;">- Comanda de Cocina -</div>
+
+          <div class="divider-dashed"></div>
+          <div class="center" style="font-size: 10px; font-weight: bold; margin-top: 6px;">- FIN DE COMANDA -</div>
+
+          <script>
+            window.onload = function() {
+              window.focus();
+              window.print();
+              setTimeout(function() {
+                window.close();
+              }, 400);
+            };
+          </script>
         </body>
       </html>
     `);
@@ -198,7 +247,7 @@ export default function GastronomicSystem() {
       setDeliveryAddress('');
       setActiveTab('kds');
       fetchOrders();
-      printDirectTicket(fullOrder);
+      printProfessionalTicket(fullOrder);
     }
     setIsSubmitting(false);
   };
@@ -239,7 +288,7 @@ export default function GastronomicSystem() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '22px', fontWeight: 'bold', color: '#38bdf8' }}>#{order.daily_order_number}</span>
                     <div style={{ display: 'flex', gap: '6px' }}>
-                      <button onClick={() => printDirectTicket(order)} style={{ backgroundColor: '#334155', color: '#fff', border: '1px solid #475569', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '12px' }}>
+                      <button onClick={() => printProfessionalTicket(order)} style={{ backgroundColor: '#334155', color: '#fff', border: '1px solid #475569', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '12px' }}>
                         🖨️ Imprimir
                       </button>
                       <span style={{ fontSize: '11px', backgroundColor: '#334155', padding: '4px 6px', borderRadius: '4px' }}>{order.order_type}</span>
@@ -294,9 +343,9 @@ export default function GastronomicSystem() {
               <div>
                 <label style={{ fontSize: '11px', color: '#94a3b8' }}>Producto</label>
                 <select value={selectedProduct} onChange={(e) => { setSelectedProduct(e.target.value); setProductPrice(e.target.value.includes('50') ? 21990 : e.target.value.includes('30') ? 14990 : 3500); }} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }}>
-                  <option value="Promo 30 Piezas Mixtas">Promo 30 ($14.990)</option>
-                  <option value="Promo 50 Piezas Tempura">Promo 50 ($21.990)</option>
-                  <option value="Handroll Pollo Teriyaki">Handroll Pollo ($3.500)</option>
+                  <option value="Promo 30 Piezas Mixtas">Promo 30 Piezas Mixtas ($14.990)</option>
+                  <option value="Promo 50 Piezas Tempura">Promo 50 Piezas Tempura ($21.990)</option>
+                  <option value="Handroll Pollo Teriyaki">Handroll Pollo Teriyaki ($3.500)</option>
                 </select>
               </div>
               <div>
@@ -305,7 +354,7 @@ export default function GastronomicSystem() {
               </div>
               <div>
                 <label style={{ fontSize: '11px', color: '#94a3b8' }}>Salsas/Notas</label>
-                <input type="text" placeholder="2 Teriyaki..." value={notes} onChange={(e) => setNotes(e.target.value)} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }} />
+                <input type="text" placeholder="Ej: 2 Teriyaki, 1 Acevichada" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }} />
               </div>
               <button type="button" onClick={addItemToCart} style={{ padding: '8px 12px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>+ Añadir</button>
             </div>
