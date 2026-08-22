@@ -10,7 +10,9 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 interface Product {
   id?: number;
   name: string;
-  price: number;
+  price?: number;
+  unit_price?: number;
+  base_price?: number;
   category?: string;
 }
 
@@ -58,6 +60,13 @@ export default function GastronomicSystem() {
   const [newProdPrice, setNewProdPrice] = useState('');
   const [newProdCategory, setNewProdCategory] = useState('Promociones');
   const [isSavingProduct, setIsSavingProduct] = useState(false);
+
+  const getProductPrice = (p?: Product | null): number => {
+    if (!p) return 0;
+    const raw = p.price ?? p.unit_price ?? p.base_price ?? 0;
+    const cleanNumber = Number(String(raw).replace(/[^0-9]/g, ''));
+    return isNaN(cleanNumber) ? 0 : cleanNumber;
+  };
 
   const fetchOrders = async () => {
     const { data } = await supabase
@@ -118,10 +127,13 @@ export default function GastronomicSystem() {
     if (!newProdName.trim() || !newProdPrice) return;
     setIsSavingProduct(true);
 
+    // Limpia puntos y letras para guardar números enteros limpios (ej: "17.990" -> 17990)
+    const cleanPrice = Number(String(newProdPrice).replace(/[^0-9]/g, ''));
+
     const { error } = await supabase.from('products').insert([
       {
         name: newProdName.trim(),
-        price: Number(newProdPrice),
+        price: cleanPrice,
         category: newProdCategory
       }
     ]);
@@ -260,13 +272,14 @@ export default function GastronomicSystem() {
 
   const addItemToCart = () => {
     if (!selectedProductObj) return;
+    const price = getProductPrice(selectedProductObj);
     setCart([
       ...cart,
       {
         product_name: selectedProductObj.name,
         quantity,
-        unit_price: selectedProductObj.price,
-        subtotal: selectedProductObj.price * quantity,
+        unit_price: price,
+        subtotal: price * quantity,
         special_notes: notes
       }
     ]);
@@ -325,7 +338,6 @@ export default function GastronomicSystem() {
     p.name.toLowerCase().includes(productSearch.toLowerCase())
   );
 
-  // Cálculos para el Historial de Ventas
   const totalSalesToday = allOrdersHistory.reduce((acc, o) => acc + (o.total_amount || 0), 0);
   const totalCash = allOrdersHistory.filter((o) => o.payment_method === 'Efectivo').reduce((acc, o) => acc + (o.total_amount || 0), 0);
   const totalDebit = allOrdersHistory.filter((o) => o.payment_method === 'Débito').reduce((acc, o) => acc + (o.total_amount || 0), 0);
@@ -476,7 +488,7 @@ export default function GastronomicSystem() {
                 >
                   {filteredProducts.map((p, idx) => (
                     <option key={idx} value={p.name}>
-                      {p.name} (${Number(p.price).toLocaleString('es-CL')})
+                      {p.name} (${getProductPrice(p).toLocaleString('es-CL')})
                     </option>
                   ))}
                   {filteredProducts.length === 0 && <option value="">Sin resultados</option>}
@@ -538,7 +550,7 @@ export default function GastronomicSystem() {
               <div>
                 <label style={{ fontSize: '12px', color: '#94a3b8' }}>Precio ($)</label>
                 <input
-                  type="number"
+                  type="text"
                   placeholder="Ej: 16990"
                   value={newProdPrice}
                   onChange={(e) => setNewProdPrice(e.target.value)}
@@ -590,7 +602,7 @@ export default function GastronomicSystem() {
                         <td style={{ padding: '8px', fontWeight: 'bold' }}>{p.name}</td>
                         <td style={{ padding: '8px', color: '#94a3b8', fontSize: '12px' }}>{p.category || 'General'}</td>
                         <td style={{ padding: '8px', textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>
-                          ${Number(p.price).toLocaleString('es-CL')}
+                          ${getProductPrice(p).toLocaleString('es-CL')}
                         </td>
                       </tr>
                     ))}
@@ -602,10 +614,9 @@ export default function GastronomicSystem() {
         </main>
       )}
 
-      {/* VISTA HISTORIAL Y BALANCE DE VENTAS */}
+      {/* VISTA HISTORIAL */}
       {activeTab === 'history' && (
         <main style={{ padding: '20px', maxWidth: '900px', margin: '0 auto' }}>
-          {/* Métricas de Ventas */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
             <div style={{ backgroundColor: '#1e293b', padding: '16px', borderRadius: '10px', borderLeft: '4px solid #10b981' }}>
               <div style={{ fontSize: '12px', color: '#94a3b8' }}>TOTAL VENTAS</div>
@@ -637,7 +648,6 @@ export default function GastronomicSystem() {
             </div>
           </div>
 
-          {/* Tabla de Historial Detallado */}
           <div style={{ backgroundColor: '#1e293b', padding: '20px', borderRadius: '10px' }}>
             <h3 style={{ fontSize: '16px', marginBottom: '14px' }}>Historial Completo de Pedidos</h3>
             {allOrdersHistory.length === 0 ? (
