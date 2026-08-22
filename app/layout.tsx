@@ -1,13 +1,10 @@
-import type { Metadata, Viewport } from 'next';
+import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Sakesu Sushi Delivery | POS & KDS',
   description: 'Sistema integral gastronómico para Sakesu Sushi Delivery',
   manifest: '/manifest.json',
-};
-
-export const viewport: Viewport = {
   themeColor: '#1e293b',
 };
 
