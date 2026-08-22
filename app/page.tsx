@@ -36,8 +36,9 @@ interface Order {
 }
 
 export default function GastronomicSystem() {
-  const [activeTab, setActiveTab] = useState<'kds' | 'pos' | 'products'>('kds');
+  const [activeTab, setActiveTab] = useState<'kds' | 'pos' | 'products' | 'history'>('kds');
   const [orders, setOrders] = useState<Order[]>([]);
+  const [allOrdersHistory, setAllOrdersHistory] = useState<Order[]>([]);
   const [productsList, setProductsList] = useState<Product[]>([]);
 
   // POS State
@@ -52,7 +53,7 @@ export default function GastronomicSystem() {
   const [cart, setCart] = useState<OrderItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // New Product Form State
+  // New Product State
   const [newProdName, setNewProdName] = useState('');
   const [newProdPrice, setNewProdPrice] = useState('');
   const [newProdCategory, setNewProdCategory] = useState('Promociones');
@@ -65,6 +66,14 @@ export default function GastronomicSystem() {
       .in('status', ['PENDING', 'IN_KITCHEN', 'READY'])
       .order('created_at', { ascending: true });
     if (data) setOrders(data as Order[]);
+  };
+
+  const fetchHistory = async () => {
+    const { data } = await supabase
+      .from('orders')
+      .select('id, daily_order_number, order_type, status, total_amount, delivery_address, customer_name, payment_method, created_at, order_items(product_name, quantity, special_notes, unit_price, subtotal)')
+      .order('created_at', { ascending: false });
+    if (data) setAllOrdersHistory(data as Order[]);
   };
 
   const fetchProducts = async () => {
@@ -82,12 +91,14 @@ export default function GastronomicSystem() {
 
   useEffect(() => {
     fetchOrders();
+    fetchHistory();
     fetchProducts();
 
     const channel = supabase
       .channel('kds-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
         fetchOrders();
+        fetchHistory();
       })
       .subscribe();
 
@@ -99,6 +110,7 @@ export default function GastronomicSystem() {
   const updateOrderStatus = async (orderId: number, nextStatus: string) => {
     await supabase.from('orders').update({ status: nextStatus }).eq('id', orderId);
     fetchOrders();
+    fetchHistory();
   };
 
   const handleCreateProduct = async (e: React.FormEvent) => {
@@ -303,6 +315,7 @@ export default function GastronomicSystem() {
       setCustomerName('');
       setActiveTab('kds');
       fetchOrders();
+      fetchHistory();
       printProfessionalTicket(fullOrder);
     }
     setIsSubmitting(false);
@@ -311,6 +324,12 @@ export default function GastronomicSystem() {
   const filteredProducts = productsList.filter((p) =>
     p.name.toLowerCase().includes(productSearch.toLowerCase())
   );
+
+  // Cálculos para el Historial de Ventas
+  const totalSalesToday = allOrdersHistory.reduce((acc, o) => acc + (o.total_amount || 0), 0);
+  const totalCash = allOrdersHistory.filter((o) => o.payment_method === 'Efectivo').reduce((acc, o) => acc + (o.total_amount || 0), 0);
+  const totalDebit = allOrdersHistory.filter((o) => o.payment_method === 'Débito').reduce((acc, o) => acc + (o.total_amount || 0), 0);
+  const totalTransfer = allOrdersHistory.filter((o) => o.payment_method === 'Transferencia').reduce((acc, o) => acc + (o.total_amount || 0), 0);
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', fontFamily: 'system-ui, sans-serif' }}>
@@ -337,6 +356,12 @@ export default function GastronomicSystem() {
             style={{ padding: '8px 14px', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer', backgroundColor: activeTab === 'products' ? '#8b5cf6' : '#334155', color: '#fff' }}
           >
             📖 Carta ({productsList.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            style={{ padding: '8px 14px', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer', backgroundColor: activeTab === 'history' ? '#f59e0b' : '#334155', color: '#fff' }}
+          >
+            📊 Historial ({allOrdersHistory.length})
           </button>
         </div>
       </header>
@@ -390,7 +415,7 @@ export default function GastronomicSystem() {
         </main>
       )}
 
-      {/* VISTA POS (NUEVO PEDIDO) */}
+      {/* VISTA POS */}
       {activeTab === 'pos' && (
         <main style={{ padding: '20px', maxWidth: '650px', margin: '0 auto' }}>
           <div style={{ backgroundColor: '#1e293b', padding: '20px', borderRadius: '10px' }}>
@@ -427,7 +452,6 @@ export default function GastronomicSystem() {
 
             <hr style={{ borderColor: '#334155', margin: '16px 0' }} />
 
-            {/* BUSCADOR Y SELECCIÓN DE PRODUCTOS */}
             <div style={{ marginBottom: '8px' }}>
               <label style={{ fontSize: '12px', color: '#94a3b8' }}>Buscar en Carta de Productos</label>
               <input
@@ -494,7 +518,7 @@ export default function GastronomicSystem() {
         </main>
       )}
 
-      {/* VISTA GESTIÓN DE CARTA (AGREGAR PRODUCTOS POCO A POCO) */}
+      {/* VISTA CARTA */}
       {activeTab === 'products' && (
         <main style={{ padding: '20px', maxWidth: '700px', margin: '0 auto' }}>
           <div style={{ backgroundColor: '#1e293b', padding: '20px', borderRadius: '10px', marginBottom: '20px' }}>
@@ -567,6 +591,100 @@ export default function GastronomicSystem() {
                         <td style={{ padding: '8px', color: '#94a3b8', fontSize: '12px' }}>{p.category || 'General'}</td>
                         <td style={{ padding: '8px', textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>
                           ${Number(p.price).toLocaleString('es-CL')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </main>
+      )}
+
+      {/* VISTA HISTORIAL Y BALANCE DE VENTAS */}
+      {activeTab === 'history' && (
+        <main style={{ padding: '20px', maxWidth: '900px', margin: '0 auto' }}>
+          {/* Métricas de Ventas */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+            <div style={{ backgroundColor: '#1e293b', padding: '16px', borderRadius: '10px', borderLeft: '4px solid #10b981' }}>
+              <div style={{ fontSize: '12px', color: '#94a3b8' }}>TOTAL VENTAS</div>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#10b981', marginTop: '4px' }}>
+                ${totalSalesToday.toLocaleString('es-CL')}
+              </div>
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{allOrdersHistory.length} Pedidos</div>
+            </div>
+
+            <div style={{ backgroundColor: '#1e293b', padding: '16px', borderRadius: '10px', borderLeft: '4px solid #3b82f6' }}>
+              <div style={{ fontSize: '12px', color: '#94a3b8' }}>TRANSFERENCIA</div>
+              <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#38bdf8', marginTop: '4px' }}>
+                ${totalTransfer.toLocaleString('es-CL')}
+              </div>
+            </div>
+
+            <div style={{ backgroundColor: '#1e293b', padding: '16px', borderRadius: '10px', borderLeft: '4px solid #f59e0b' }}>
+              <div style={{ fontSize: '12px', color: '#94a3b8' }}>EFECTIVO</div>
+              <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fbbf24', marginTop: '4px' }}>
+                ${totalCash.toLocaleString('es-CL')}
+              </div>
+            </div>
+
+            <div style={{ backgroundColor: '#1e293b', padding: '16px', borderRadius: '10px', borderLeft: '4px solid #8b5cf6' }}>
+              <div style={{ fontSize: '12px', color: '#94a3b8' }}>DÉBITO</div>
+              <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#a78bfa', marginTop: '4px' }}>
+                ${totalDebit.toLocaleString('es-CL')}
+              </div>
+            </div>
+          </div>
+
+          {/* Tabla de Historial Detallado */}
+          <div style={{ backgroundColor: '#1e293b', padding: '20px', borderRadius: '10px' }}>
+            <h3 style={{ fontSize: '16px', marginBottom: '14px' }}>Historial Completo de Pedidos</h3>
+            {allOrdersHistory.length === 0 ? (
+              <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aún no se registran pedidos.</p>
+            ) : (
+              <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #334155', color: '#94a3b8', textAlign: 'left' }}>
+                      <th style={{ padding: '8px' }}>Orden</th>
+                      <th style={{ padding: '8px' }}>Hora</th>
+                      <th style={{ padding: '8px' }}>Cliente</th>
+                      <th style={{ padding: '8px' }}>Tipo / Pago</th>
+                      <th style={{ padding: '8px' }}>Productos</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>Total</th>
+                      <th style={{ padding: '8px', textAlign: 'center' }}>Reimprimir</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allOrdersHistory.map((o) => (
+                      <tr key={o.id} style={{ borderBottom: '1px solid #243049' }}>
+                        <td style={{ padding: '8px', fontWeight: 'bold', color: '#38bdf8' }}>#{o.daily_order_number}</td>
+                        <td style={{ padding: '8px', color: '#94a3b8' }}>
+                          {new Date(o.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td style={{ padding: '8px', fontWeight: 'bold' }}>{o.customer_name || 'Sin nombre'}</td>
+                        <td style={{ padding: '8px' }}>
+                          <span style={{ fontSize: '11px', backgroundColor: '#0f172a', padding: '2px 6px', borderRadius: '4px' }}>
+                            {o.order_type}
+                          </span>
+                          <div style={{ fontSize: '11px', color: '#34d399', marginTop: '2px' }}>{o.payment_method || 'Efectivo'}</div>
+                        </td>
+                        <td style={{ padding: '8px', fontSize: '12px' }}>
+                          {o.order_items?.map((it, idx) => (
+                            <div key={idx}>• {it.quantity}x {it.product_name}</div>
+                          ))}
+                        </td>
+                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#10b981' }}>
+                          ${Number(o.total_amount).toLocaleString('es-CL')}
+                        </td>
+                        <td style={{ padding: '8px', textAlign: 'center' }}>
+                          <button
+                            onClick={() => printProfessionalTicket(o)}
+                            style={{ backgroundColor: '#334155', color: '#fff', border: '1px solid #475569', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px' }}
+                          >
+                            🖨️
+                          </button>
                         </td>
                       </tr>
                     ))}
