@@ -1,6 +1,5 @@
 'use client';
 
-import './globals.css';
 import React, { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
@@ -21,7 +20,7 @@ interface ItemPedido extends ItemMenu {
 }
 
 export default function POSPage() {
-  const [menu, setMenu] = useState<ItemMenu[]>([
+  const [menu] = useState<ItemMenu[]>([
     { id: '1', nombre: 'Promo 30 Piezas', precio: 14990, categoria: 'Promociones' },
     { id: '2', nombre: 'Promo 40 Piezas', precio: 18990, categoria: 'Promociones' },
     { id: '3', nombre: 'Promo 60 Piezas', precio: 24990, categoria: 'Promociones' },
@@ -133,25 +132,37 @@ export default function POSPage() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-slate-100 flex flex-col md:flex-row">
-      {/* Menú de Productos */}
-      <div className="flex-1 p-6 border-r border-red-950/40">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-black tracking-wider text-white">
-            SAKESU <span className="text-red-600">SUSHI</span>
+    <div style={{ minHeight: '100vh', backgroundColor: '#0d0d0d', color: '#f3f4f6', fontFamily: 'sans-serif', display: 'flex', flexWrap: 'wrap' }}>
+      {/* Catálogo de Productos */}
+      <div style={{ flex: '1 1 500px', padding: '24px', borderRight: '1px solid #262626' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <h1 style={{ fontSize: '26px', fontWeight: '900', letterSpacing: '1px', margin: 0 }}>
+            SAKESU <span style={{ color: '#dc2626' }}>SUSHI</span>
           </h1>
-          <span className="text-xs text-neutral-400 italic">"Cada bocado, una tentación"</span>
+          <span style={{ fontSize: '13px', color: '#a3a3a3', fontStyle: 'italic' }}>"Cada bocado, una tentación"</span>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '16px' }}>
           {menu.map((item) => (
             <button
               key={item.id}
               onClick={() => agregarAlPedido(item)}
-              className="p-4 bg-neutral-900 border border-neutral-800 hover:border-red-600 rounded-xl flex flex-col items-center justify-between text-center transition active:scale-95 shadow-md group"
+              style={{
+                backgroundColor: '#171717',
+                border: '1px solid #262626',
+                borderRadius: '12px',
+                padding: '16px',
+                cursor: 'pointer',
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                color: '#fff',
+                minHeight: '90px'
+              }}
             >
-              <span className="font-semibold text-slate-200 group-hover:text-red-400 transition">{item.nombre}</span>
-              <span className="text-red-500 font-bold mt-2">
+              <span style={{ fontWeight: '600', fontSize: '14px' }}>{item.nombre}</span>
+              <span style={{ color: '#ef4444', fontWeight: 'bold', marginTop: '10px', fontSize: '15px' }}>
                 ${item.precio.toLocaleString('es-CL')}
               </span>
             </button>
@@ -159,60 +170,48 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* Comanda Actual */}
-      <div className="w-full md:w-96 p-6 bg-neutral-900 flex flex-col justify-between border-l border-red-950/30">
+      {/* Panel Lateral de Comanda */}
+      <div style={{ width: '380px', backgroundColor: '#141414', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
         <div>
-          <h2 className="text-xl font-bold mb-4 border-b border-neutral-800 pb-2 text-red-500">Comanda Actual</h2>
+          <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: '#ef4444', borderBottom: '1px solid #262626', paddingBottom: '8px', margin: '0 0 16px 0' }}>
+            Comanda Actual
+          </h2>
 
-          {/* Lista de Items */}
-          <div className="space-y-3 max-h-56 overflow-y-auto mb-4 pr-1">
+          <div style={{ maxHeight: '220px', overflowY: 'auto', marginBottom: '16px' }}>
             {pedido.length === 0 ? (
-              <p className="text-sm text-neutral-500 text-center py-6">No hay productos añadidos</p>
+              <p style={{ fontSize: '13px', color: '#737373', textAlign: 'center', margin: '30px 0' }}>No hay productos añadidos</p>
             ) : (
               pedido.map((item) => (
-                <div key={item.id} className="flex justify-between items-center bg-neutral-950 p-2 rounded-lg border border-neutral-800">
-                  <div className="text-sm">
-                    <p className="font-medium text-slate-200">{item.nombre}</p>
-                    <p className="text-xs text-red-400">${(item.precio * item.cantidad).toLocaleString('es-CL')}</p>
+                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0a0a0a', padding: '8px 12px', borderRadius: '8px', marginBottom: '8px', border: '1px solid #262626' }}>
+                  <div>
+                    <p style={{ margin: 0, fontSize: '13px', fontWeight: '600' }}>{item.nombre}</p>
+                    <p style={{ margin: 0, fontSize: '12px', color: '#ef4444' }}>${(item.precio * item.cantidad).toLocaleString('es-CL')}</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => modificarCantidad(item.id, -1)}
-                      className="w-6 h-6 bg-neutral-800 hover:bg-neutral-700 rounded text-slate-300 flex items-center justify-center font-bold"
-                    >
-                      -
-                    </button>
-                    <span className="text-sm font-semibold">{item.cantidad}</span>
-                    <button
-                      type="button"
-                      onClick={() => modificarCantidad(item.id, 1)}
-                      className="w-6 h-6 bg-neutral-800 hover:bg-neutral-700 rounded text-slate-300 flex items-center justify-center font-bold"
-                    >
-                      +
-                    </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button type="button" onClick={() => modificarCantidad(item.id, -1)} style={{ width: '24px', height: '24px', backgroundColor: '#262626', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>-</button>
+                    <span style={{ fontSize: '13px', fontWeight: 'bold' }}>{item.cantidad}</span>
+                    <button type="button" onClick={() => modificarCantidad(item.id, 1)} style={{ width: '24px', height: '24px', backgroundColor: '#262626', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>+</button>
                   </div>
                 </div>
               ))
             )}
           </div>
 
-          {/* Formulario Cliente y Pago */}
-          <form onSubmit={handleCrearPedido} className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
+          <form onSubmit={handleCrearPedido} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 type="text"
                 placeholder="Cliente"
                 value={cliente}
                 onChange={(e) => setCliente(e.target.value)}
-                className="w-full p-2 bg-neutral-950 border border-neutral-800 focus:border-red-600 rounded text-sm text-white outline-none"
+                style={{ width: '100%', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#fff', borderRadius: '6px', fontSize: '13px', outline: 'none' }}
               />
               <input
                 type="text"
                 placeholder="Teléfono"
                 value={telefono}
                 onChange={(e) => setTelefono(e.target.value)}
-                className="w-full p-2 bg-neutral-950 border border-neutral-800 focus:border-red-600 rounded text-sm text-white outline-none"
+                style={{ width: '100%', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#fff', borderRadius: '6px', fontSize: '13px', outline: 'none' }}
               />
             </div>
 
@@ -221,14 +220,14 @@ export default function POSPage() {
               placeholder="Dirección (si es Delivery)"
               value={direccion}
               onChange={(e) => setDireccion(e.target.value)}
-              className="w-full p-2 bg-neutral-950 border border-neutral-800 focus:border-red-600 rounded text-sm text-white outline-none"
+              style={{ width: '100%', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#fff', borderRadius: '6px', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
             />
 
-            <div className="grid grid-cols-2 gap-2">
+            <div style={{ display: 'flex', gap: '8px' }}>
               <select
                 value={tipoEntrega}
                 onChange={(e: any) => setTipoEntrega(e.target.value)}
-                className="w-full p-2 bg-neutral-950 border border-neutral-800 focus:border-red-600 rounded text-sm text-white outline-none"
+                style={{ width: '100%', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#fff', borderRadius: '6px', fontSize: '13px', outline: 'none' }}
               >
                 <option value="Delivery">Delivery</option>
                 <option value="Retiro">Retiro</option>
@@ -238,7 +237,7 @@ export default function POSPage() {
               <select
                 value={metodoPago}
                 onChange={(e) => setMetodoPago(e.target.value)}
-                className="w-full p-2 bg-neutral-950 border border-neutral-800 focus:border-red-600 rounded text-sm text-white outline-none"
+                style={{ width: '100%', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#fff', borderRadius: '6px', fontSize: '13px', outline: 'none' }}
               >
                 <option value="Efectivo">Efectivo</option>
                 <option value="Débito">Débito</option>
@@ -247,17 +246,28 @@ export default function POSPage() {
               </select>
             </div>
 
-            <div className="border-t border-neutral-800 pt-3 mt-3 flex justify-between items-center text-lg font-bold">
+            <div style={{ borderTop: '1px solid #262626', paddingTop: '12px', marginTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '18px', fontWeight: 'bold' }}>
               <span>Total:</span>
-              <span className="text-red-500">${total.toLocaleString('es-CL')}</span>
+              <span style={{ color: '#ef4444' }}>${total.toLocaleString('es-CL')}</span>
             </div>
 
-            {mensaje && <p className="text-xs text-green-400 text-center">{mensaje}</p>}
+            {mensaje && <p style={{ fontSize: '12px', color: '#22c55e', textAlign: 'center', margin: 0 }}>{mensaje}</p>}
 
             <button
               type="submit"
               disabled={cargando || pedido.length === 0}
-              className="w-full py-3 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition active:scale-95 mt-2"
+              style={{
+                width: '100%',
+                padding: '12px',
+                backgroundColor: cargando || pedido.length === 0 ? '#525252' : '#991b1b',
+                color: '#ffffff',
+                fontWeight: 'bold',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: cargando || pedido.length === 0 ? 'not-allowed' : 'pointer',
+                marginTop: '8px',
+                fontSize: '14px'
+              }}
             >
               {cargando ? 'Procesando...' : 'Confirmar y Cobrar'}
             </button>
