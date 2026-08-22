@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
+import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Sistema Gastronómico Live',
-  description: 'KDS y POS en tiempo real',
+  title: 'Sakesu Sushi Delivery | POS & KDS',
+  description: 'Sistema integral gastronómico para Sakesu Sushi Delivery',
+  manifest: '/manifest.json',
 };
 
 export default function RootLayout({
@@ -12,9 +14,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <body style={{ margin: 0, padding: 0, backgroundColor: '#0f172a' }}>
-        {children}
-      </body>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#1e293b" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+      </head>
+      <body>{children}</body>
     </html>
   );
 }
