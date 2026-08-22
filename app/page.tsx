@@ -45,6 +45,25 @@ interface CustomerProfile {
   address: string;
 }
 
+interface ModOption {
+  id: string;
+  type: 'relleno' | 'envoltura';
+  label: string;
+  extra: number;
+}
+
+const DEFAULT_MODS: ModOption[] = [
+  { id: 'm1', type: 'relleno', label: 'Pollo ➔ Salmón', extra: 1000 },
+  { id: 'm2', type: 'relleno', label: 'Pollo ➔ Camarón', extra: 500 },
+  { id: 'm3', type: 'relleno', label: 'Kanikama ➔ Pollo', extra: 0 },
+  { id: 'm4', type: 'relleno', label: 'Sin Cebollín', extra: 0 },
+  { id: 'm5', type: 'relleno', label: 'Sin Queso Crema', extra: 0 },
+  { id: 'm6', type: 'envoltura', label: 'Envoltura Panko / Frito', extra: 0 },
+  { id: 'm7', type: 'envoltura', label: 'Envoltura Palta', extra: 500 },
+  { id: 'm8', type: 'envoltura', label: 'Envoltura Salmón', extra: 1500 },
+  { id: 'm9', type: 'envoltura', label: 'Envoltura Queso Crema', extra: 1000 },
+];
+
 export default function GastronomicSystem() {
   const [activeTab, setActiveTab] = useState<'kds' | 'pos' | 'products' | 'history'>('kds');
   const [orders, setOrders] = useState<Order[]>([]);
@@ -76,6 +95,14 @@ export default function GastronomicSystem() {
   const [notes, setNotes] = useState('');
   const [cart, setCart] = useState<OrderItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Modificadores de Relleno y Envoltura
+  const [availableMods, setAvailableMods] = useState<ModOption[]>(DEFAULT_MODS);
+  const [selectedMods, setSelectedMods] = useState<ModOption[]>([]);
+  const [showNewModForm, setShowNewModForm] = useState(false);
+  const [newModType, setNewModType] = useState<'relleno' | 'envoltura'>('relleno');
+  const [newModLabel, setNewModLabel] = useState('');
+  const [newModExtra, setNewModExtra] = useState<number>(0);
 
   // Clientes frecuentes
   const [frequentCustomers, setFrequentCustomers] = useState<CustomerProfile[]>([]);
@@ -196,7 +223,6 @@ export default function GastronomicSystem() {
     };
   }, []);
 
-  // Búsqueda reactiva de cliente frecuente por teléfono
   const handlePhoneChange = (val: string) => {
     setCustomerPhone(val);
     const clean = val.replace(/[^0-9]/g, '');
@@ -289,7 +315,7 @@ export default function GastronomicSystem() {
           ${
             it.special_notes
               ? `<div style="font-size: 13px; font-weight: bold; padding-left: 10px; margin-top: 2px;">
-                  >> NOTA: ${it.special_notes.toUpperCase()}
+                  >> CAMBIOS: ${it.special_notes.toUpperCase()}
                  </div>`
               : ''
           }
@@ -393,24 +419,54 @@ export default function GastronomicSystem() {
     w.document.close();
   };
 
-  const appendSauceNote = (sauce: string) => {
-    setNotes((prev) => (prev ? `${prev}, ${sauce}` : sauce));
+  const toggleMod = (mod: ModOption) => {
+    if (selectedMods.some((m) => m.id === mod.id)) {
+      setSelectedMods(selectedMods.filter((m) => m.id !== mod.id));
+    } else {
+      setSelectedMods([...selectedMods, mod]);
+    }
+  };
+
+  const handleAddNewMod = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newModLabel.trim()) return;
+
+    const newMod: ModOption = {
+      id: 'custom_' + Date.now(),
+      type: newModType,
+      label: newModLabel.trim(),
+      extra: Number(newModExtra) || 0,
+    };
+
+    setAvailableMods((prev) => [...prev, newMod]);
+    setSelectedMods((prev) => [...prev, newMod]);
+    setNewModLabel('');
+    setNewModExtra(0);
+    setShowNewModForm(false);
   };
 
   const addItemToCart = () => {
     if (!selectedProductObj) return;
-    const price = getProductPrice(selectedProductObj);
+    const basePrice = getProductPrice(selectedProductObj);
+    const extraTotal = selectedMods.reduce((acc, m) => acc + m.extra, 0);
+    const unitPrice = basePrice + extraTotal;
+
+    const modLabels = selectedMods.map((m) => `${m.label}${m.extra > 0 ? ` (+$${m.extra})` : ''}`);
+    const fullNotes = [...modLabels, notes.trim()].filter(Boolean).join(' | ');
+
     setCart([
       ...cart,
       {
         product_name: selectedProductObj.name,
         quantity,
-        unit_price: price,
-        subtotal: price * quantity,
-        special_notes: notes
-      }
+        unit_price: unitPrice,
+        subtotal: unitPrice * quantity,
+        special_notes: fullNotes,
+      },
     ]);
+
     setNotes('');
+    setSelectedMods([]);
   };
 
   const handleCreateOrder = async (e: React.FormEvent) => {
@@ -521,6 +577,9 @@ export default function GastronomicSystem() {
     if (!address) return alert('No hay dirección registrada');
     window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`, '_blank');
   };
+
+  const rellenosDisponibles = availableMods.filter((m) => m.type === 'relleno');
+  const envolturasDisponibles = availableMods.filter((m) => m.type === 'envoltura');
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', fontFamily: 'system-ui, sans-serif' }}>
@@ -757,29 +816,136 @@ export default function GastronomicSystem() {
               <button type="button" onClick={addItemToCart} style={{ padding: '8px 14px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>+ Añadir</button>
             </div>
 
-            <div style={{ marginTop: '10px' }}>
-              <label style={{ fontSize: '11px', color: '#94a3b8' }}>Salsas / Modificadores Rápidos:</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
-                {['Teriyaki', 'Acevichada', 'Spicy', 'Maracuyá', 'Mango', 'Soya', 'Sin Queso', 'Sin Cebollín', 'Cambio Panko'].map((tag) => (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() => appendSauceNote(tag)}
-                    style={{ fontSize: '11px', padding: '4px 8px', backgroundColor: '#334155', border: '1px solid #475569', color: '#cbd5e1', borderRadius: '4px', cursor: 'pointer' }}
-                  >
-                    + {tag}
-                  </button>
-                ))}
+            {/* CASILLAS RÁPIDAS DE CAMBIOS DE RELLENO Y ENVOLTURA */}
+            <div style={{ marginTop: '14px', backgroundColor: '#0f172a', padding: '12px', borderRadius: '8px', border: '1px solid #334155' }}>
+              <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#f59e0b', marginBottom: '8px' }}>
+                🥢 Modificaciones y Cambios de 1-Clic:
               </div>
+
+              {/* Rellenos */}
+              <div style={{ marginBottom: '8px' }}>
+                <span style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>CAMBIO DE RELLENO:</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {rellenosDisponibles.map((mod) => {
+                    const isSelected = selectedMods.some((m) => m.id === mod.id);
+                    return (
+                      <button
+                        key={mod.id}
+                        type="button"
+                        onClick={() => toggleMod(mod)}
+                        style={{
+                          fontSize: '11px',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          border: isSelected ? '1px solid #f97316' : '1px solid #475569',
+                          backgroundColor: isSelected ? '#ea580c' : '#1e293b',
+                          color: isSelected ? '#fff' : '#cbd5e1',
+                          fontWeight: isSelected ? 'bold' : 'normal',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {isSelected ? '✓ ' : ''}{mod.label} {mod.extra > 0 ? `(+$${mod.extra})` : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Envolturas */}
+              <div style={{ marginBottom: '8px' }}>
+                <span style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>CAMBIO DE ENVOLTURA:</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {envolturasDisponibles.map((mod) => {
+                    const isSelected = selectedMods.some((m) => m.id === mod.id);
+                    return (
+                      <button
+                        key={mod.id}
+                        type="button"
+                        onClick={() => toggleMod(mod)}
+                        style={{
+                          fontSize: '11px',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          border: isSelected ? '1px solid #f97316' : '1px solid #475569',
+                          backgroundColor: isSelected ? '#ea580c' : '#1e293b',
+                          color: isSelected ? '#fff' : '#cbd5e1',
+                          fontWeight: isSelected ? 'bold' : 'normal',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {isSelected ? '✓ ' : ''}{mod.label} {mod.extra > 0 ? `(+$${mod.extra})` : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Botón y Formulario para añadir nuevos cambios dinámicos */}
+              {!showNewModForm ? (
+                <button
+                  type="button"
+                  onClick={() => setShowNewModForm(true)}
+                  style={{ background: 'none', border: 'none', color: '#38bdf8', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', padding: '4px 0', textDecoration: 'underline' }}
+                >
+                  + Añadir nuevo cambio a la lista
+                </button>
+              ) : (
+                <form onSubmit={handleAddNewMod} style={{ marginTop: '8px', padding: '10px', backgroundColor: '#1e293b', borderRadius: '6px', border: '1px solid #38bdf8' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8', marginBottom: '6px' }}>Crear nueva opción de cambio:</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '6px' }}>
+                    <select
+                      value={newModType}
+                      onChange={(e: any) => setNewModType(e.target.value)}
+                      style={{ padding: '6px', borderRadius: '4px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155', fontSize: '11px' }}
+                    >
+                      <option value="relleno">Relleno</option>
+                      <option value="envoltura">Envoltura</option>
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Ej: Pollo por Palmito"
+                      value={newModLabel}
+                      onChange={(e) => setNewModLabel(e.target.value)}
+                      required
+                      style={{ padding: '6px', borderRadius: '4px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155', fontSize: '11px' }}
+                    />
+                    <input
+                      type="number"
+                      placeholder="Extra ($)"
+                      value={newModExtra || ''}
+                      onChange={(e) => setNewModExtra(Number(e.target.value))}
+                      style={{ padding: '6px', borderRadius: '4px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155', fontSize: '11px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowNewModForm(false)}
+                      style={{ backgroundColor: 'transparent', border: 'none', color: '#94a3b8', fontSize: '11px', cursor: 'pointer' }}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      style={{ backgroundColor: '#38bdf8', color: '#000', border: 'none', borderRadius: '4px', padding: '4px 10px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
+                    >
+                      Guardar y Marcar
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Notas de texto libre */}
               <input
                 type="text"
-                placeholder="Notas personalizadas (ej: 2 Teriyaki, 1 Acevichada)"
+                placeholder="Notas adicionales (ej: salsa aparte, sin sésamo)..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                style={{ width: '100%', padding: '6px 8px', marginTop: '6px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155', fontSize: '12px' }}
+                style={{ width: '100%', padding: '6px 8px', marginTop: '10px', borderRadius: '6px', backgroundColor: '#1e293b', color: '#fff', border: '1px solid #334155', fontSize: '12px' }}
               />
             </div>
 
+            {/* CARRITO */}
             <div style={{ marginTop: '16px', backgroundColor: '#0f172a', padding: '12px', borderRadius: '6px' }}>
               {cart.length === 0 ? (
                 <p style={{ margin: 0, fontSize: '12px', color: '#64748b', textAlign: 'center' }}>No has añadido productos a la comanda</p>
@@ -787,7 +953,7 @@ export default function GastronomicSystem() {
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                   {cart.map((item, i) => (
                     <li key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #1e293b' }}>
-                      <span>{item.quantity}x {item.product_name} {item.special_notes && `(${item.special_notes})`}</span>
+                      <span>{item.quantity}x {item.product_name} {item.special_notes && <em style={{ color: '#fb923c' }}>({item.special_notes})</em>}</span>
                       <span>${item.subtotal.toLocaleString('es-CL')}</span>
                     </li>
                   ))}
