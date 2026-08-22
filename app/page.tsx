@@ -132,19 +132,25 @@ export default function POSPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-neutral-950 text-slate-100 flex flex-col md:flex-row">
       {/* Menú de Productos */}
-      <div className="flex-1 p-6 border-r border-slate-800">
-        <h1 className="text-2xl font-bold mb-6 text-yellow-400">SAKESU SUSHI - POS</h1>
+      <div className="flex-1 p-6 border-r border-red-950/40">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-black tracking-wider text-white">
+            SAKESU <span className="text-red-600">SUSHI</span>
+          </h1>
+          <span className="text-xs text-neutral-400 italic">"Cada bocado, una tentación"</span>
+        </div>
+
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           {menu.map((item) => (
             <button
               key={item.id}
               onClick={() => agregarAlPedido(item)}
-              className="p-4 bg-slate-900 border border-slate-800 hover:border-yellow-500 rounded-xl flex flex-col items-center justify-between text-center transition active:scale-95 shadow-md"
+              className="p-4 bg-neutral-900 border border-neutral-800 hover:border-red-600 rounded-xl flex flex-col items-center justify-between text-center transition active:scale-95 shadow-md group"
             >
-              <span className="font-semibold text-slate-200">{item.nombre}</span>
-              <span className="text-yellow-400 font-bold mt-2">
+              <span className="font-semibold text-slate-200 group-hover:text-red-400 transition">{item.nombre}</span>
+              <span className="text-red-500 font-bold mt-2">
                 ${item.precio.toLocaleString('es-CL')}
               </span>
             </button>
@@ -153,26 +159,26 @@ export default function POSPage() {
       </div>
 
       {/* Comanda Actual */}
-      <div className="w-full md:w-96 p-6 bg-slate-900 flex flex-col justify-between">
+      <div className="w-full md:w-96 p-6 bg-neutral-900 flex flex-col justify-between border-l border-red-950/30">
         <div>
-          <h2 className="text-xl font-bold mb-4 border-b border-slate-800 pb-2">Comanda Actual</h2>
+          <h2 className="text-xl font-bold mb-4 border-b border-neutral-800 pb-2 text-red-500">Comanda Actual</h2>
 
           {/* Lista de Items */}
           <div className="space-y-3 max-h-56 overflow-y-auto mb-4 pr-1">
             {pedido.length === 0 ? (
-              <p className="text-sm text-slate-500 text-center py-6">No hay productos añadidos</p>
+              <p className="text-sm text-neutral-500 text-center py-6">No hay productos añadidos</p>
             ) : (
               pedido.map((item) => (
-                <div key={item.id} className="flex justify-between items-center bg-slate-950 p-2 rounded-lg border border-slate-800">
+                <div key={item.id} className="flex justify-between items-center bg-neutral-950 p-2 rounded-lg border border-neutral-800">
                   <div className="text-sm">
-                    <p className="font-medium">{item.nombre}</p>
-                    <p className="text-xs text-yellow-500">${(item.precio * item.cantidad).toLocaleString('es-CL')}</p>
+                    <p className="font-medium text-slate-200">{item.nombre}</p>
+                    <p className="text-xs text-red-400">${(item.precio * item.cantidad).toLocaleString('es-CL')}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => modificarCantidad(item.id, -1)}
-                      className="w-6 h-6 bg-slate-800 rounded text-slate-300 flex items-center justify-center font-bold"
+                      className="w-6 h-6 bg-neutral-800 hover:bg-neutral-700 rounded text-slate-300 flex items-center justify-center font-bold"
                     >
                       -
                     </button>
@@ -180,7 +186,7 @@ export default function POSPage() {
                     <button
                       type="button"
                       onClick={() => modificarCantidad(item.id, 1)}
-                      className="w-6 h-6 bg-slate-800 rounded text-slate-300 flex items-center justify-center font-bold"
+                      className="w-6 h-6 bg-neutral-800 hover:bg-neutral-700 rounded text-slate-300 flex items-center justify-center font-bold"
                     >
                       +
                     </button>
@@ -198,14 +204,14 @@ export default function POSPage() {
                 placeholder="Cliente"
                 value={cliente}
                 onChange={(e) => setCliente(e.target.value)}
-                className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-sm text-white"
+                className="w-full p-2 bg-neutral-950 border border-neutral-800 focus:border-red-600 rounded text-sm text-white outline-none"
               />
               <input
                 type="text"
                 placeholder="Teléfono"
                 value={telefono}
                 onChange={(e) => setTelefono(e.target.value)}
-                className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-sm text-white"
+                className="w-full p-2 bg-neutral-950 border border-neutral-800 focus:border-red-600 rounded text-sm text-white outline-none"
               />
             </div>
 
@@ -214,14 +220,14 @@ export default function POSPage() {
               placeholder="Dirección (si es Delivery)"
               value={direccion}
               onChange={(e) => setDireccion(e.target.value)}
-              className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-sm text-white"
+              className="w-full p-2 bg-neutral-950 border border-neutral-800 focus:border-red-600 rounded text-sm text-white outline-none"
             />
 
             <div className="grid grid-cols-2 gap-2">
               <select
                 value={tipoEntrega}
                 onChange={(e: any) => setTipoEntrega(e.target.value)}
-                className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-sm text-white"
+                className="w-full p-2 bg-neutral-950 border border-neutral-800 focus:border-red-600 rounded text-sm text-white outline-none"
               >
                 <option value="Delivery">Delivery</option>
                 <option value="Retiro">Retiro</option>
@@ -231,7 +237,7 @@ export default function POSPage() {
               <select
                 value={metodoPago}
                 onChange={(e) => setMetodoPago(e.target.value)}
-                className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-sm text-white"
+                className="w-full p-2 bg-neutral-950 border border-neutral-800 focus:border-red-600 rounded text-sm text-white outline-none"
               >
                 <option value="Efectivo">Efectivo</option>
                 <option value="Débito">Débito</option>
@@ -240,9 +246,9 @@ export default function POSPage() {
               </select>
             </div>
 
-            <div className="border-t border-slate-800 pt-3 mt-3 flex justify-between items-center text-lg font-bold">
+            <div className="border-t border-neutral-800 pt-3 mt-3 flex justify-between items-center text-lg font-bold">
               <span>Total:</span>
-              <span className="text-yellow-400">${total.toLocaleString('es-CL')}</span>
+              <span className="text-red-500">${total.toLocaleString('es-CL')}</span>
             </div>
 
             {mensaje && <p className="text-xs text-green-400 text-center">{mensaje}</p>}
@@ -250,7 +256,7 @@ export default function POSPage() {
             <button
               type="submit"
               disabled={cargando || pedido.length === 0}
-              className="w-full py-3 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 text-slate-950 font-bold rounded-xl shadow-lg transition active:scale-95 mt-2"
+              className="w-full py-3 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition active:scale-95 mt-2"
             >
               {cargando ? 'Procesando...' : 'Confirmar y Cobrar'}
             </button>
