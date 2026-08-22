@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -8,10 +8,10 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface ItemMenu {
-  id: string | number;
+  id: string;
   nombre: string;
   precio: number;
-  categoria?: string;
+  categoria: string;
 }
 
 interface ItemPedido extends ItemMenu {
@@ -20,8 +20,15 @@ interface ItemPedido extends ItemMenu {
 }
 
 export default function POSPage() {
-  const [menu, setMenu] = useState<ItemMenu[]>([]);
-  const [cargandoMenu, setCargandoMenu] = useState(true);
+  const [menu, setMenu] = useState<ItemMenu[]>([
+    { id: '1', nombre: 'Promo 30 Piezas', precio: 14990, categoria: 'Promociones' },
+    { id: '2', nombre: 'Promo 40 Piezas', precio: 18990, categoria: 'Promociones' },
+    { id: '3', nombre: 'Promo 60 Piezas', precio: 24990, categoria: 'Promociones' },
+    { id: '4', nombre: 'Handroll Pollo', precio: 3500, categoria: 'Handrolls' },
+    { id: '5', nombre: 'Handroll Camarón', precio: 4000, categoria: 'Handrolls' },
+    { id: '6', nombre: 'Bebida 1.5L', precio: 2500, categoria: 'Bebidas' },
+  ]);
+
   const [pedido, setPedido] = useState<ItemPedido[]>([]);
   const [cliente, setCliente] = useState('');
   const [telefono, setTelefono] = useState('');
@@ -30,36 +37,6 @@ export default function POSPage() {
   const [metodoPago, setMetodoPago] = useState('Efectivo');
   const [cargando, setCargando] = useState(false);
   const [mensaje, setMensaje] = useState('');
-
-  // Cargar productos desde Supabase
-  useEffect(() => {
-    async function obtenerProductos() {
-      try {
-        if (supabaseUrl && supabaseAnonKey) {
-          const { data, error } = await supabase.from('productos').select('*').order('nombre');
-          if (error) throw error;
-          if (data && data.length > 0) {
-            setMenu(data);
-          } else {
-            // Menú de respaldo si la tabla está vacía
-            setMenu([
-              { id: '1', nombre: 'Promo 30 Piezas', precio: 14990, categoria: 'Promociones' },
-              { id: '2', nombre: 'Promo 40 Piezas', precio: 18990, categoria: 'Promociones' },
-              { id: '3', nombre: 'Promo 60 Piezas', precio: 24990, categoria: 'Promociones' },
-              { id: '4', Handroll Pollo: '', nombre: 'Handroll Pollo', precio: 3500, categoria: 'Handrolls' },
-              { id: '5', nombre: 'Handroll Camarón', precio: 4000, categoria: 'Handrolls' },
-              { id: '6', nombre: 'Bebida 1.5L', precio: 2500, categoria: 'Bebidas' },
-            ]);
-          }
-        }
-      } catch (err) {
-        console.error('Error cargando productos:', err);
-      } finally {
-        setCargandoMenu(false);
-      }
-    }
-    obtenerProductos();
-  }, []);
 
   const agregarAlPedido = (item: ItemMenu) => {
     setPedido((prev) => {
@@ -73,7 +50,7 @@ export default function POSPage() {
     });
   };
 
-  const modificarCantidad = (id: string | number, delta: number) => {
+  const modificarCantidad = (id: string, delta: number) => {
     setPedido((prev) =>
       prev
         .map((p) => {
@@ -155,90 +132,80 @@ export default function POSPage() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#0d0d0d', color: '#f3f4f6', fontFamily: 'sans-serif', display: 'flex', flexWrap: 'wrap' }}>
-      {/* Catálogo de Productos */}
-      <div style={{ flex: '1 1 500px', padding: '24px', borderRight: '1px solid #262626' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <h1 style={{ fontSize: '26px', fontWeight: '900', letterSpacing: '1px', margin: 0 }}>
-            SAKESU <span style={{ color: '#dc2626' }}>SUSHI</span>
-          </h1>
-          <span style={{ fontSize: '13px', color: '#a3a3a3', fontStyle: 'italic' }}>"Cada bocado, una tentación"</span>
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row">
+      {/* Menú de Productos */}
+      <div className="flex-1 p-6 border-r border-slate-800">
+        <h1 className="text-2xl font-bold mb-6 text-yellow-400">SAKESU SUSHI - POS</h1>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          {menu.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => agregarAlPedido(item)}
+              className="p-4 bg-slate-900 border border-slate-800 hover:border-yellow-500 rounded-xl flex flex-col items-center justify-between text-center transition active:scale-95 shadow-md"
+            >
+              <span className="font-semibold text-slate-200">{item.nombre}</span>
+              <span className="text-yellow-400 font-bold mt-2">
+                ${item.precio.toLocaleString('es-CL')}
+              </span>
+            </button>
+          ))}
         </div>
-
-        {cargandoMenu ? (
-          <p style={{ color: '#a3a3a3' }}>Cargando catálogo de productos...</p>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '16px' }}>
-            {menu.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => agregarAlPedido(item)}
-                style={{
-                  backgroundColor: '#171717',
-                  border: '1px solid #262626',
-                  borderRadius: '12px',
-                  padding: '16px',
-                  cursor: 'pointer',
-                  textAlign: 'center',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  color: '#fff',
-                  minHeight: '90px'
-                }}
-              >
-                <span style={{ fontWeight: '600', fontSize: '14px' }}>{item.nombre}</span>
-                <span style={{ color: '#ef4444', fontWeight: 'bold', marginTop: '10px', fontSize: '15px' }}>
-                  ${Number(item.precio).toLocaleString('es-CL')}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
-      {/* Panel Lateral de Comanda */}
-      <div style={{ width: '380px', backgroundColor: '#141414', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+      {/* Comanda Actual */}
+      <div className="w-full md:w-96 p-6 bg-slate-900 flex flex-col justify-between">
         <div>
-          <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: '#ef4444', borderBottom: '1px solid #262626', paddingBottom: '8px', margin: '0 0 16px 0' }}>
-            Comanda Actual
-          </h2>
+          <h2 className="text-xl font-bold mb-4 border-b border-slate-800 pb-2">Comanda Actual</h2>
 
-          <div style={{ maxHeight: '220px', overflowY: 'auto', marginBottom: '16px' }}>
+          {/* Lista de Items */}
+          <div className="space-y-3 max-h-56 overflow-y-auto mb-4 pr-1">
             {pedido.length === 0 ? (
-              <p style={{ fontSize: '13px', color: '#737373', textAlign: 'center', margin: '30px 0' }}>No hay productos añadidos</p>
+              <p className="text-sm text-slate-500 text-center py-6">No hay productos añadidos</p>
             ) : (
               pedido.map((item) => (
-                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0a0a0a', padding: '8px 12px', borderRadius: '8px', marginBottom: '8px', border: '1px solid #262626' }}>
-                  <div>
-                    <p style={{ margin: 0, fontSize: '13px', fontWeight: '600' }}>{item.nombre}</p>
-                    <p style={{ margin: 0, fontSize: '12px', color: '#ef4444' }}>${(item.precio * item.cantidad).toLocaleString('es-CL')}</p>
+                <div key={item.id} className="flex justify-between items-center bg-slate-950 p-2 rounded-lg border border-slate-800">
+                  <div className="text-sm">
+                    <p className="font-medium">{item.nombre}</p>
+                    <p className="text-xs text-yellow-500">${(item.precio * item.cantidad).toLocaleString('es-CL')}</p>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button type="button" onClick={() => modificarCantidad(item.id, -1)} style={{ width: '24px', height: '24px', backgroundColor: '#262626', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>-</button>
-                    <span style={{ fontSize: '13px', fontWeight: 'bold' }}>{item.cantidad}</span>
-                    <button type="button" onClick={() => modificarCantidad(item.id, 1)} style={{ width: '24px', height: '24px', backgroundColor: '#262626', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>+</button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => modificarCantidad(item.id, -1)}
+                      className="w-6 h-6 bg-slate-800 rounded text-slate-300 flex items-center justify-center font-bold"
+                    >
+                      -
+                    </button>
+                    <span className="text-sm font-semibold">{item.cantidad}</span>
+                    <button
+                      type="button"
+                      onClick={() => modificarCantidad(item.id, 1)}
+                      className="w-6 h-6 bg-slate-800 rounded text-slate-300 flex items-center justify-center font-bold"
+                    >
+                      +
+                    </button>
                   </div>
                 </div>
               ))
             )}
           </div>
 
-          <form onSubmit={handleCrearPedido} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ display: 'flex', gap: '8px' }}>
+          {/* Formulario Cliente y Pago */}
+          <form onSubmit={handleCrearPedido} className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
               <input
                 type="text"
                 placeholder="Cliente"
                 value={cliente}
                 onChange={(e) => setCliente(e.target.value)}
-                style={{ width: '100%', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#fff', borderRadius: '6px', fontSize: '13px', outline: 'none' }}
+                className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-sm text-white"
               />
               <input
                 type="text"
                 placeholder="Teléfono"
                 value={telefono}
                 onChange={(e) => setTelefono(e.target.value)}
-                style={{ width: '100%', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#fff', borderRadius: '6px', fontSize: '13px', outline: 'none' }}
+                className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-sm text-white"
               />
             </div>
 
@@ -247,14 +214,14 @@ export default function POSPage() {
               placeholder="Dirección (si es Delivery)"
               value={direccion}
               onChange={(e) => setDireccion(e.target.value)}
-              style={{ width: '100%', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#fff', borderRadius: '6px', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+              className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-sm text-white"
             />
 
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div className="grid grid-cols-2 gap-2">
               <select
                 value={tipoEntrega}
                 onChange={(e: any) => setTipoEntrega(e.target.value)}
-                style={{ width: '100%', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#fff', borderRadius: '6px', fontSize: '13px', outline: 'none' }}
+                className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-sm text-white"
               >
                 <option value="Delivery">Delivery</option>
                 <option value="Retiro">Retiro</option>
@@ -264,7 +231,7 @@ export default function POSPage() {
               <select
                 value={metodoPago}
                 onChange={(e) => setMetodoPago(e.target.value)}
-                style={{ width: '100%', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#fff', borderRadius: '6px', fontSize: '13px', outline: 'none' }}
+                className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-sm text-white"
               >
                 <option value="Efectivo">Efectivo</option>
                 <option value="Débito">Débito</option>
@@ -273,28 +240,17 @@ export default function POSPage() {
               </select>
             </div>
 
-            <div style={{ borderTop: '1px solid #262626', paddingTop: '12px', marginTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '18px', fontWeight: 'bold' }}>
+            <div className="border-t border-slate-800 pt-3 mt-3 flex justify-between items-center text-lg font-bold">
               <span>Total:</span>
-              <span style={{ color: '#ef4444' }}>${total.toLocaleString('es-CL')}</span>
+              <span className="text-yellow-400">${total.toLocaleString('es-CL')}</span>
             </div>
 
-            {mensaje && <p style={{ fontSize: '12px', color: '#22c55e', textAlign: 'center', margin: 0 }}>{mensaje}</p>}
+            {mensaje && <p className="text-xs text-green-400 text-center">{mensaje}</p>}
 
             <button
               type="submit"
               disabled={cargando || pedido.length === 0}
-              style={{
-                width: '100%',
-                padding: '12px',
-                backgroundColor: cargando || pedido.length === 0 ? '#525252' : '#991b1b',
-                color: '#ffffff',
-                fontWeight: 'bold',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: cargando || pedido.length === 0 ? 'not-allowed' : 'pointer',
-                marginTop: '8px',
-                fontSize: '14px'
-              }}
+              className="w-full py-3 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 text-slate-950 font-bold rounded-xl shadow-lg transition active:scale-95 mt-2"
             >
               {cargando ? 'Procesando...' : 'Confirmar y Cobrar'}
             </button>
