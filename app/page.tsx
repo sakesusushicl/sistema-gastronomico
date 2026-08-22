@@ -34,7 +34,7 @@ export default function GastronomicSystem() {
 
   const [customerName, setCustomerName] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER'>('CASH');
+  const [paymentMethod, setPaymentMethod] = useState<'Efectivo' | 'Débito' | 'Transferencia'>('Efectivo');
   const [orderType, setOrderType] = useState<'DELIVERY' | 'PICKUP'>('DELIVERY');
   const [selectedProduct, setSelectedProduct] = useState('Promo 30 Piezas Mixtas');
   const [productPrice, setProductPrice] = useState(14990);
@@ -68,11 +68,6 @@ export default function GastronomicSystem() {
   const updateOrderStatus = async (orderId: number, nextStatus: string) => {
     await supabase.from('orders').update({ status: nextStatus }).eq('id', orderId);
     fetchOrders();
-  };
-
-  const getPaymentLabel = (method?: string) => {
-    if (method === 'TRANSFER') return 'TRANSFERENCIA';
-    return 'EFECTIVO / DÉBITO';
   };
 
   const printProfessionalTicket = (order: Order) => {
@@ -163,7 +158,7 @@ export default function GastronomicSystem() {
                    </div>`
                 : ''
             }
-            <div style="margin-top: 4px; font-size: 13px; font-weight: bold;"><strong>MÉTODO DE PAGO:</strong> ${getPaymentLabel(order.payment_method)}</div>
+            <div style="margin-top: 4px; font-size: 14px; font-weight: 900;"><strong>MÉTODO DE PAGO:</strong> ${order.payment_method ? order.payment_method.toUpperCase() : 'EFECTIVO'}</div>
           </div>
 
           <div class="divider-solid"></div>
@@ -301,7 +296,7 @@ export default function GastronomicSystem() {
                   </div>
                   {order.customer_name && <p style={{ fontSize: '13px', color: '#f1f5f9', fontWeight: 'bold', margin: '6px 0 2px 0' }}>👤 {order.customer_name}</p>}
                   {order.delivery_address && <p style={{ fontSize: '12px', color: '#94a3b8', margin: '2px 0' }}>📍 {order.delivery_address}</p>}
-                  {order.payment_method && <p style={{ fontSize: '12px', color: '#34d399', margin: '2px 0 10px 0' }}>💳 Pago: {getPaymentLabel(order.payment_method)}</p>}
+                  {order.payment_method && <p style={{ fontSize: '12px', color: '#34d399', margin: '2px 0 10px 0' }}>💳 Pago: {order.payment_method}</p>}
                   <hr style={{ borderColor: '#334155', margin: '8px 0' }} />
                   <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 14px 0' }}>
                     {order.order_items?.map((item, idx) => (
@@ -341,8 +336,9 @@ export default function GastronomicSystem() {
               <div>
                 <label style={{ fontSize: '12px', color: '#94a3b8' }}>Método de Pago</label>
                 <select value={paymentMethod} onChange={(e: any) => setPaymentMethod(e.target.value)} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }}>
-                  <option value="CASH">Efectivo / Débito</option>
-                  <option value="TRANSFER">Transferencia</option>
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="Débito">Débito</option>
+                  <option value="Transferencia">Transferencia</option>
                 </select>
               </div>
             </div>
