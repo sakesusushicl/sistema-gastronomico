@@ -39,6 +39,12 @@ interface Order {
   order_items: OrderItem[];
 }
 
+interface CustomerProfile {
+  name: string;
+  phone: string;
+  address: string;
+}
+
 export default function GastronomicSystem() {
   const [activeTab, setActiveTab] = useState<'kds' | 'pos' | 'products' | 'history'>('kds');
   const [orders, setOrders] = useState<Order[]>([]);
@@ -71,6 +77,10 @@ export default function GastronomicSystem() {
   const [cart, setCart] = useState<OrderItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Clientes frecuentes
+  const [frequentCustomers, setFrequentCustomers] = useState<CustomerProfile[]>([]);
+  const [matchedCustomer, setMatchedCustomer] = useState<CustomerProfile | null>(null);
+
   // New Product State
   const [newProdName, setNewProdName] = useState('');
   const [newProdPrice, setNewProdPrice] = useState('');
@@ -81,15 +91,14 @@ export default function GastronomicSystem() {
 
   const prevOrdersCountRef = useRef<number>(0);
 
-  // Reproducir alerta sonora de comanda
   const playAlertSound = () => {
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15); // A5
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15);
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
       osc.connect(gain);
@@ -97,7 +106,7 @@ export default function GastronomicSystem() {
       osc.start();
       osc.stop(ctx.currentTime + 0.4);
     } catch (err) {
-      console.log('Audio context not allowed yet');
+      console.log('Audio not allowed yet');
     }
   };
 
@@ -106,6 +115,24 @@ export default function GastronomicSystem() {
     const raw = p.price ?? p.unit_price ?? p.base_price ?? 0;
     const cleanNumber = Number(String(raw).replace(/[^0-9]/g, ''));
     return isNaN(cleanNumber) ? 0 : cleanNumber;
+  };
+
+  const buildCustomerDatabase = (orderHistory: Order[]) => {
+    const map = new Map<string, CustomerProfile>();
+    orderHistory.forEach((o) => {
+      const rawName = o.customer_name || '';
+      const phoneMatch = rawName.match(/\((.*?)\)/);
+      const phone = phoneMatch ? phoneMatch[1] : '';
+      const cleanName = rawName.replace(/\(.*?\)/, '').trim();
+      const address = o.delivery_address && o.delivery_address !== 'Retiro en Local' ? o.delivery_address : '';
+
+      if (phone && phone.length >= 7) {
+        if (!map.has(phone)) {
+          map.set(phone, { name: cleanName, phone, address });
+        }
+      }
+    });
+    setFrequentCustomers(Array.from(map.values()));
   };
 
   const fetchOrders = async () => {
@@ -128,7 +155,10 @@ export default function GastronomicSystem() {
       .from('orders')
       .select('id, daily_order_number, order_type, status, total_amount, delivery_address, customer_name, payment_method, created_at, order_items(product_name, quantity, special_notes, unit_price, subtotal)')
       .order('created_at', { ascending: false });
-    if (data) setAllOrdersHistory(data as Order[]);
+    if (data) {
+      setAllOrdersHistory(data as Order[]);
+      buildCustomerDatabase(data as Order[]);
+    }
   };
 
   const fetchProducts = async () => {
@@ -157,7 +187,6 @@ export default function GastronomicSystem() {
       .subscribe();
 
     const interval = setInterval(() => {
-      // Re-render para actualizar temporizadores
       setOrders((prev) => [...prev]);
     }, 30000);
 
@@ -166,6 +195,32 @@ export default function GastronomicSystem() {
       clearInterval(interval);
     };
   }, []);
+
+  // Búsqueda reactiva de cliente frecuente por teléfono
+  const handlePhoneChange = (val: string) => {
+    setCustomerPhone(val);
+    const clean = val.replace(/[^0-9]/g, '');
+    if (clean.length >= 6) {
+      const match = frequentCustomers.find((c) => c.phone.includes(clean));
+      if (match) {
+        setMatchedCustomer(match);
+      } else {
+        setMatchedCustomer(null);
+      }
+    } else {
+      setMatchedCustomer(null);
+    }
+  };
+
+  const applyFrequentCustomer = (cust: CustomerProfile) => {
+    setCustomerName(cust.name);
+    setCustomerPhone(cust.phone);
+    if (cust.address) {
+      setDeliveryAddress(cust.address);
+      setOrderType('DELIVERY');
+    }
+    setMatchedCustomer(null);
+  };
 
   const updateOrderStatus = async (orderId: number, nextStatus: string) => {
     await supabase.from('orders').update({ status: nextStatus }).eq('id', orderId);
@@ -418,7 +473,6 @@ export default function GastronomicSystem() {
     p.name.toLowerCase().includes(productSearch.toLowerCase())
   );
 
-  // Filtrado de Historial
   const filteredHistory = allOrdersHistory.filter((o) => {
     if (historyFilter === 'ALL') return true;
     const orderDate = new Date(o.created_at).toDateString();
@@ -597,15 +651,44 @@ export default function GastronomicSystem() {
         <main style={{ padding: '20px', maxWidth: '700px', margin: '0 auto' }}>
           <div style={{ backgroundColor: '#1e293b', padding: '20px', borderRadius: '10px' }}>
             <h2 style={{ fontSize: '18px', marginBottom: '16px' }}>Nuevo Pedido (POS)</h2>
+
+            {/* SUGERENCIA DE CLIENTE FRECUENTE */}
+            {matchedCustomer && (
+              <div style={{ backgroundColor: '#0369a1', padding: '10px 14px', borderRadius: '6px', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 'bold' }}>💡 Cliente Frecuente Detectado:</div>
+                  <div style={{ fontSize: '13px' }}><strong>{matchedCustomer.name}</strong> {matchedCustomer.address ? `(${matchedCustomer.address})` : ''}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => applyFrequentCustomer(matchedCustomer)}
+                  style={{ backgroundColor: '#fff', color: '#0369a1', border: 'none', padding: '6px 12px', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}
+                >
+                  ⚡ Autocompletar
+                </button>
+              </div>
+            )}
             
             <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '10px', marginBottom: '12px' }}>
               <div>
-                <label style={{ fontSize: '12px', color: '#94a3b8' }}>Nombre Cliente</label>
-                <input type="text" placeholder="Ej: Juan Pérez" value={customerName} onChange={(e) => setCustomerName(e.target.value)} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }} />
+                <label style={{ fontSize: '12px', color: '#94a3b8' }}>Teléfono (WhatsApp)</label>
+                <input
+                  type="text"
+                  placeholder="Ej: 982565002"
+                  value={customerPhone}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }}
+                />
               </div>
               <div>
-                <label style={{ fontSize: '12px', color: '#94a3b8' }}>Teléfono (WhatsApp)</label>
-                <input type="text" placeholder="Ej: 982565002" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }} />
+                <label style={{ fontSize: '12px', color: '#94a3b8' }}>Nombre Cliente</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Juan Pérez"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }}
+                />
               </div>
               <div>
                 <label style={{ fontSize: '12px', color: '#94a3b8' }}>Método de Pago</label>
@@ -674,7 +757,6 @@ export default function GastronomicSystem() {
               <button type="button" onClick={addItemToCart} style={{ padding: '8px 14px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>+ Añadir</button>
             </div>
 
-            {/* BOTONES RÁPIDOS DE SALSAS Y NOTAS */}
             <div style={{ marginTop: '10px' }}>
               <label style={{ fontSize: '11px', color: '#94a3b8' }}>Salsas / Modificadores Rápidos:</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
@@ -836,10 +918,9 @@ export default function GastronomicSystem() {
         </main>
       )}
 
-      {/* VISTA HISTORIAL Y CIERRE DE CAJA */}
+      {/* VISTA HISTORIAL */}
       {activeTab === 'history' && (
         <main style={{ padding: '20px', maxWidth: '900px', margin: '0 auto' }}>
-          {/* Barra de Filtros y Cierre */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
             <div style={{ display: 'flex', gap: '6px' }}>
               <button onClick={() => setHistoryFilter('TODAY')} style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: historyFilter === 'TODAY' ? '#3b82f6' : '#334155', color: '#fff', fontWeight: 'bold' }}>Hoy</button>
