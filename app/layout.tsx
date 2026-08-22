@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Sakesu Sushi Delivery | POS & KDS',
-  description: 'Sistema integral gastronómico para Sakesu Sushi Delivery',
+  title: 'Sistema Gastronómico Live',
+  description: 'Sistema POS y KDS para gastronomía',
 };
 
 export default function RootLayout({
