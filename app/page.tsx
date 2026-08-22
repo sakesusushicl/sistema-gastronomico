@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -8,10 +8,10 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface ItemMenu {
-  id: string;
+  id: string | number;
   nombre: string;
   precio: number;
-  categoria: string;
+  categoria?: string;
 }
 
 interface ItemPedido extends ItemMenu {
@@ -20,15 +20,8 @@ interface ItemPedido extends ItemMenu {
 }
 
 export default function POSPage() {
-  const [menu] = useState<ItemMenu[]>([
-    { id: '1', nombre: 'Promo 30 Piezas', precio: 14990, categoria: 'Promociones' },
-    { id: '2', nombre: 'Promo 40 Piezas', precio: 18990, categoria: 'Promociones' },
-    { id: '3', nombre: 'Promo 60 Piezas', precio: 24990, categoria: 'Promociones' },
-    { id: '4', nombre: 'Handroll Pollo', precio: 3500, categoria: 'Handrolls' },
-    { id: '5', nombre: 'Handroll Camarón', precio: 4000, categoria: 'Handrolls' },
-    { id: '6', nombre: 'Bebida 1.5L', precio: 2500, categoria: 'Bebidas' },
-  ]);
-
+  const [menu, setMenu] = useState<ItemMenu[]>([]);
+  const [cargandoMenu, setCargandoMenu] = useState(true);
   const [pedido, setPedido] = useState<ItemPedido[]>([]);
   const [cliente, setCliente] = useState('');
   const [telefono, setTelefono] = useState('');
@@ -37,6 +30,36 @@ export default function POSPage() {
   const [metodoPago, setMetodoPago] = useState('Efectivo');
   const [cargando, setCargando] = useState(false);
   const [mensaje, setMensaje] = useState('');
+
+  // Cargar productos desde Supabase
+  useEffect(() => {
+    async function obtenerProductos() {
+      try {
+        if (supabaseUrl && supabaseAnonKey) {
+          const { data, error } = await supabase.from('productos').select('*').order('nombre');
+          if (error) throw error;
+          if (data && data.length > 0) {
+            setMenu(data);
+          } else {
+            // Menú de respaldo si la tabla está vacía
+            setMenu([
+              { id: '1', nombre: 'Promo 30 Piezas', precio: 14990, categoria: 'Promociones' },
+              { id: '2', nombre: 'Promo 40 Piezas', precio: 18990, categoria: 'Promociones' },
+              { id: '3', nombre: 'Promo 60 Piezas', precio: 24990, categoria: 'Promociones' },
+              { id: '4', Handroll Pollo: '', nombre: 'Handroll Pollo', precio: 3500, categoria: 'Handrolls' },
+              { id: '5', nombre: 'Handroll Camarón', precio: 4000, categoria: 'Handrolls' },
+              { id: '6', nombre: 'Bebida 1.5L', precio: 2500, categoria: 'Bebidas' },
+            ]);
+          }
+        }
+      } catch (err) {
+        console.error('Error cargando productos:', err);
+      } finally {
+        setCargandoMenu(false);
+      }
+    }
+    obtenerProductos();
+  }, []);
 
   const agregarAlPedido = (item: ItemMenu) => {
     setPedido((prev) => {
@@ -50,7 +73,7 @@ export default function POSPage() {
     });
   };
 
-  const modificarCantidad = (id: string, delta: number) => {
+  const modificarCantidad = (id: string | number, delta: number) => {
     setPedido((prev) =>
       prev
         .map((p) => {
@@ -142,32 +165,36 @@ export default function POSPage() {
           <span style={{ fontSize: '13px', color: '#a3a3a3', fontStyle: 'italic' }}>"Cada bocado, una tentación"</span>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '16px' }}>
-          {menu.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => agregarAlPedido(item)}
-              style={{
-                backgroundColor: '#171717',
-                border: '1px solid #262626',
-                borderRadius: '12px',
-                padding: '16px',
-                cursor: 'pointer',
-                textAlign: 'center',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                color: '#fff',
-                minHeight: '90px'
-              }}
-            >
-              <span style={{ fontWeight: '600', fontSize: '14px' }}>{item.nombre}</span>
-              <span style={{ color: '#ef4444', fontWeight: 'bold', marginTop: '10px', fontSize: '15px' }}>
-                ${item.precio.toLocaleString('es-CL')}
-              </span>
-            </button>
-          ))}
-        </div>
+        {cargandoMenu ? (
+          <p style={{ color: '#a3a3a3' }}>Cargando catálogo de productos...</p>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '16px' }}>
+            {menu.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => agregarAlPedido(item)}
+                style={{
+                  backgroundColor: '#171717',
+                  border: '1px solid #262626',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  color: '#fff',
+                  minHeight: '90px'
+                }}
+              >
+                <span style={{ fontWeight: '600', fontSize: '14px' }}>{item.nombre}</span>
+                <span style={{ color: '#ef4444', fontWeight: 'bold', marginTop: '10px', fontSize: '15px' }}>
+                  ${Number(item.precio).toLocaleString('es-CL')}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Panel Lateral de Comanda */}
