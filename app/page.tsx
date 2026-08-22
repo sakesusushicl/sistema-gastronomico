@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -32,6 +32,8 @@ interface Order {
   total_amount: number;
   delivery_address?: string;
   customer_name?: string;
+  customer_phone?: string;
+  delivery_fee?: number;
   payment_method?: string;
   created_at: string;
   order_items: OrderItem[];
@@ -42,6 +44,7 @@ export default function GastronomicSystem() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [allOrdersHistory, setAllOrdersHistory] = useState<Order[]>([]);
   const [productsList, setProductsList] = useState<Product[]>([]);
+  const [historyFilter, setHistoryFilter] = useState<'TODAY' | 'YESTERDAY' | 'ALL'>('TODAY');
 
   // Categorías base
   const [customCategories, setCustomCategories] = useState<string[]>([
@@ -56,7 +59,9 @@ export default function GastronomicSystem() {
 
   // POS State
   const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryFee, setDeliveryFee] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<'Efectivo' | 'Débito' | 'Transferencia'>('Efectivo');
   const [orderType, setOrderType] = useState<'DELIVERY' | 'PICKUP'>('DELIVERY');
   const [productSearch, setProductSearch] = useState('');
@@ -74,6 +79,28 @@ export default function GastronomicSystem() {
   const [newCustomCatInput, setNewCustomCatInput] = useState('');
   const [isSavingProduct, setIsSavingProduct] = useState(false);
 
+  const prevOrdersCountRef = useRef<number>(0);
+
+  // Reproducir alerta sonora de comanda
+  const playAlertSound = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15); // A5
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.4);
+    } catch (err) {
+      console.log('Audio context not allowed yet');
+    }
+  };
+
   const getProductPrice = (p?: Product | null): number => {
     if (!p) return 0;
     const raw = p.price ?? p.unit_price ?? p.base_price ?? 0;
@@ -87,7 +114,13 @@ export default function GastronomicSystem() {
       .select('id, daily_order_number, order_type, status, total_amount, delivery_address, customer_name, payment_method, created_at, order_items(product_name, quantity, special_notes, unit_price, subtotal)')
       .in('status', ['PENDING', 'IN_KITCHEN', 'READY'])
       .order('created_at', { ascending: true });
-    if (data) setOrders(data as Order[]);
+    if (data) {
+      if (prevOrdersCountRef.current > 0 && data.length > prevOrdersCountRef.current) {
+        playAlertSound();
+      }
+      prevOrdersCountRef.current = data.length;
+      setOrders(data as Order[]);
+    }
   };
 
   const fetchHistory = async () => {
@@ -99,16 +132,12 @@ export default function GastronomicSystem() {
   };
 
   const fetchProducts = async () => {
-    const { data } = await supabase
-      .from('products')
-      .select('*')
-      .order('name', { ascending: true });
+    const { data } = await supabase.from('products').select('*').order('name', { ascending: true });
     if (data && data.length > 0) {
       setProductsList(data as Product[]);
       if (!selectedProductObj) {
         setSelectedProductObj(data[0]);
       }
-      // Detectar categorías únicas existentes en la base de datos
       const existingCats = Array.from(new Set(data.map((p) => p.category).filter(Boolean)));
       setCustomCategories((prev) => Array.from(new Set([...prev, ...existingCats])));
     }
@@ -127,8 +156,14 @@ export default function GastronomicSystem() {
       })
       .subscribe();
 
+    const interval = setInterval(() => {
+      // Re-render para actualizar temporizadores
+      setOrders((prev) => [...prev]);
+    }, 30000);
+
     return () => {
       supabase.removeChannel(channel);
+      clearInterval(interval);
     };
   }, []);
 
@@ -136,6 +171,14 @@ export default function GastronomicSystem() {
     await supabase.from('orders').update({ status: nextStatus }).eq('id', orderId);
     fetchOrders();
     fetchHistory();
+  };
+
+  const handleDeleteProduct = async (id?: number) => {
+    if (!id) return;
+    if (confirm('¿Estás seguro de eliminar este producto de la carta?')) {
+      await supabase.from('products').delete().eq('id', id);
+      fetchProducts();
+    }
   };
 
   const handleCreateProduct = async (e: React.FormEvent) => {
@@ -295,6 +338,10 @@ export default function GastronomicSystem() {
     w.document.close();
   };
 
+  const appendSauceNote = (sauce: string) => {
+    setNotes((prev) => (prev ? `${prev}, ${sauce}` : sauce));
+  };
+
   const addItemToCart = () => {
     if (!selectedProductObj) return;
     const price = getProductPrice(selectedProductObj);
@@ -315,7 +362,8 @@ export default function GastronomicSystem() {
     e.preventDefault();
     if (cart.length === 0) return;
     setIsSubmitting(true);
-    const total = cart.reduce((acc, item) => acc + item.subtotal, 0);
+    const subtotal = cart.reduce((acc, item) => acc + item.subtotal, 0);
+    const finalTotal = subtotal + (orderType === 'DELIVERY' ? Number(deliveryFee) : 0);
     const dailyNum = Math.floor(Math.random() * 900) + 100;
 
     const { data: orderData, error } = await supabase
@@ -326,9 +374,9 @@ export default function GastronomicSystem() {
           order_type: orderType,
           status: 'PENDING',
           delivery_address: orderType === 'DELIVERY' ? deliveryAddress : 'Retiro en Local',
-          customer_name: customerName,
+          customer_name: customerName + (customerPhone ? ` (${customerPhone})` : ''),
           payment_method: paymentMethod,
-          total_amount: total
+          total_amount: finalTotal
         }
       ])
       .select()
@@ -351,6 +399,8 @@ export default function GastronomicSystem() {
       setCart([]);
       setDeliveryAddress('');
       setCustomerName('');
+      setCustomerPhone('');
+      setDeliveryFee(0);
       setActiveTab('kds');
       fetchOrders();
       fetchHistory();
@@ -359,14 +409,64 @@ export default function GastronomicSystem() {
     setIsSubmitting(false);
   };
 
+  const getMinutesElapsed = (createdAt: string) => {
+    const diff = Math.floor((Date.now() - new Date(createdAt).getTime()) / 60000);
+    return Math.max(0, diff);
+  };
+
   const filteredProducts = productsList.filter((p) =>
     p.name.toLowerCase().includes(productSearch.toLowerCase())
   );
 
-  const totalSalesToday = allOrdersHistory.reduce((acc, o) => acc + (o.total_amount || 0), 0);
-  const totalCash = allOrdersHistory.filter((o) => o.payment_method === 'Efectivo').reduce((acc, o) => acc + (o.total_amount || 0), 0);
-  const totalDebit = allOrdersHistory.filter((o) => o.payment_method === 'Débito').reduce((acc, o) => acc + (o.total_amount || 0), 0);
-  const totalTransfer = allOrdersHistory.filter((o) => o.payment_method === 'Transferencia').reduce((acc, o) => acc + (o.total_amount || 0), 0);
+  // Filtrado de Historial
+  const filteredHistory = allOrdersHistory.filter((o) => {
+    if (historyFilter === 'ALL') return true;
+    const orderDate = new Date(o.created_at).toDateString();
+    const today = new Date().toDateString();
+    if (historyFilter === 'TODAY') return orderDate === today;
+    if (historyFilter === 'YESTERDAY') {
+      const yesterday = new Date(Date.now() - 86400000).toDateString();
+      return orderDate === yesterday;
+    }
+    return true;
+  });
+
+  const totalSalesFiltered = filteredHistory.reduce((acc, o) => acc + (o.total_amount || 0), 0);
+  const totalCash = filteredHistory.filter((o) => o.payment_method === 'Efectivo').reduce((acc, o) => acc + (o.total_amount || 0), 0);
+  const totalDebit = filteredHistory.filter((o) => o.payment_method === 'Débito').reduce((acc, o) => acc + (o.total_amount || 0), 0);
+  const totalTransfer = filteredHistory.filter((o) => o.payment_method === 'Transferencia').reduce((acc, o) => acc + (o.total_amount || 0), 0);
+
+  const exportToCSV = () => {
+    if (filteredHistory.length === 0) return alert('No hay ventas para exportar');
+    const headers = 'Orden,Fecha,Hora,Cliente,Tipo,Metodo_Pago,Total\n';
+    const rows = filteredHistory
+      .map((o) => {
+        const d = new Date(o.created_at);
+        return `"${o.daily_order_number}","${d.toLocaleDateString('es-CL')}","${d.toLocaleTimeString('es-CL')}","${o.customer_name || ''}","${o.order_type}","${o.payment_method || 'Efectivo'}","${o.total_amount}"`;
+      })
+      .join('\n');
+    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `ventas_sakesu_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const openWhatsApp = (phone?: string, orderNum?: number) => {
+    if (!phone) return alert('No hay teléfono registrado para este cliente');
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const fullPhone = cleanPhone.startsWith('56') ? cleanPhone : `56${cleanPhone}`;
+    const msg = encodeURIComponent(`¡Hola! Tu pedido #${orderNum} de Sakesu Sushi va en camino 🛵🍣 ¡Muchas gracias por tu compra!`);
+    window.open(`https://wa.me/${fullPhone}?text=${msg}`, '_blank');
+  };
+
+  const openMaps = (address?: string) => {
+    if (!address) return alert('No hay dirección registrada');
+    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`, '_blank');
+  };
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', fontFamily: 'system-ui, sans-serif' }}>
@@ -398,7 +498,7 @@ export default function GastronomicSystem() {
             onClick={() => setActiveTab('history')}
             style={{ padding: '8px 14px', borderRadius: '6px', fontWeight: 'bold', border: 'none', cursor: 'pointer', backgroundColor: activeTab === 'history' ? '#f59e0b' : '#334155', color: '#fff' }}
           >
-            📊 Historial ({allOrdersHistory.length})
+            📊 Historial / Ventas
           </button>
         </div>
       </header>
@@ -408,45 +508,85 @@ export default function GastronomicSystem() {
         <main style={{ padding: '20px' }}>
           {orders.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '50px', color: '#94a3b8' }}>
-              <h2>No hay pedidos pendientes</h2>
+              <h2>No hay pedidos pendientes en cocina 🍣</h2>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
-              {orders.map((order) => (
-                <div key={order.id} style={{ backgroundColor: '#1e293b', borderRadius: '10px', padding: '16px', borderTop: order.status === 'PENDING' ? '5px solid #eab308' : '5px solid #3b82f6' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '22px', fontWeight: 'bold', color: '#38bdf8' }}>#{order.daily_order_number}</span>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button onClick={() => printProfessionalTicket(order)} style={{ backgroundColor: '#334155', color: '#fff', border: '1px solid #475569', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '12px' }}>
-                        🖨️ Imprimir
-                      </button>
-                      <span style={{ fontSize: '11px', backgroundColor: '#334155', padding: '4px 6px', borderRadius: '4px' }}>{order.order_type}</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: '16px' }}>
+              {orders.map((order) => {
+                const mins = getMinutesElapsed(order.created_at);
+                const timerColor = mins > 25 ? '#ef4444' : mins > 15 ? '#f59e0b' : '#10b981';
+                return (
+                  <div key={order.id} style={{ backgroundColor: '#1e293b', borderRadius: '10px', padding: '16px', borderTop: `6px solid ${timerColor}`, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '22px', fontWeight: 'bold', color: '#38bdf8' }}>#{order.daily_order_number}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 'bold', backgroundColor: timerColor, color: '#000', padding: '3px 8px', borderRadius: '12px' }}>
+                            ⏱ {mins} min
+                          </span>
+                          <button onClick={() => printProfessionalTicket(order)} style={{ backgroundColor: '#334155', color: '#fff', border: '1px solid #475569', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '12px' }}>
+                            🖨️
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '6px', margin: '6px 0' }}>
+                        <span style={{ fontSize: '11px', backgroundColor: order.order_type === 'DELIVERY' ? '#0369a1' : '#047857', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                          {order.order_type === 'DELIVERY' ? '🛵 DELIVERY' : '🏪 RETIRO'}
+                        </span>
+                        <span style={{ fontSize: '11px', backgroundColor: '#334155', padding: '2px 6px', borderRadius: '4px', color: '#34d399' }}>
+                          {order.payment_method || 'Efectivo'}
+                        </span>
+                      </div>
+
+                      {order.customer_name && <p style={{ fontSize: '14px', color: '#f1f5f9', fontWeight: 'bold', margin: '4px 0 2px 0' }}>👤 {order.customer_name}</p>}
+                      {order.delivery_address && (
+                        <p style={{ fontSize: '12px', color: '#94a3b8', margin: '2px 0', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          📍 {order.delivery_address}
+                          <button onClick={() => openMaps(order.delivery_address)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px' }} title="Ver en Maps">🗺️</button>
+                        </p>
+                      )}
+
+                      <hr style={{ borderColor: '#334155', margin: '8px 0' }} />
+                      <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 14px 0' }}>
+                        {order.order_items?.map((item, idx) => (
+                          <li key={idx} style={{ marginBottom: '8px' }}>
+                            <span style={{ color: '#fbbf24', fontWeight: '900', fontSize: '15px' }}>{item.quantity}x</span> <strong style={{ fontSize: '15px' }}>{item.product_name}</strong>
+                            {item.special_notes && (
+                              <div style={{ fontSize: '13px', color: '#f87171', fontWeight: 'bold', paddingLeft: '8px', marginTop: '2px' }}>
+                                ↳ {item.special_notes}
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: order.order_type === 'DELIVERY' ? '1fr auto' : '1fr', gap: '8px' }}>
+                      {order.status === 'PENDING' && (
+                        <button onClick={() => updateOrderStatus(order.id, 'IN_KITCHEN')} style={{ padding: '10px', backgroundColor: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                          ▶ Empezar
+                        </button>
+                      )}
+                      {order.status === 'IN_KITCHEN' && (
+                        <button onClick={() => updateOrderStatus(order.id, 'READY')} style={{ padding: '10px', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                          ✓ Listo para Despacho
+                        </button>
+                      )}
+                      {order.status === 'READY' && (
+                        <button onClick={() => updateOrderStatus(order.id, 'DELIVERED')} style={{ padding: '10px', backgroundColor: '#64748b', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                          ✓ Entregado
+                        </button>
+                      )}
+                      {order.order_type === 'DELIVERY' && (
+                        <button onClick={() => openWhatsApp(order.customer_name?.match(/\((.*?)\)/)?.[1], order.daily_order_number)} style={{ padding: '10px 12px', backgroundColor: '#25d366', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }} title="Avisar por WhatsApp">
+                          📲
+                        </button>
+                      )}
                     </div>
                   </div>
-                  {order.customer_name && <p style={{ fontSize: '13px', color: '#f1f5f9', fontWeight: 'bold', margin: '6px 0 2px 0' }}>👤 {order.customer_name}</p>}
-                  {order.delivery_address && <p style={{ fontSize: '12px', color: '#94a3b8', margin: '2px 0' }}>📍 {order.delivery_address}</p>}
-                  {order.payment_method && <p style={{ fontSize: '12px', color: '#34d399', margin: '2px 0 10px 0' }}>💳 Pago: {order.payment_method}</p>}
-                  <hr style={{ borderColor: '#334155', margin: '8px 0' }} />
-                  <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 14px 0' }}>
-                    {order.order_items?.map((item, idx) => (
-                      <li key={idx} style={{ marginBottom: '6px' }}>
-                        <span style={{ color: '#fbbf24', fontWeight: 'bold' }}>{item.quantity}x</span> <strong>{item.product_name}</strong>
-                        {item.special_notes && <div style={{ fontSize: '12px', color: '#f87171' }}>• {item.special_notes}</div>}
-                      </li>
-                    ))}
-                  </ul>
-                  {order.status === 'PENDING' && (
-                    <button onClick={() => updateOrderStatus(order.id, 'IN_KITCHEN')} style={{ width: '100%', padding: '10px', backgroundColor: '#eab308', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                      ▶ Empezar
-                    </button>
-                  )}
-                  {order.status === 'IN_KITCHEN' && (
-                    <button onClick={() => updateOrderStatus(order.id, 'READY')} style={{ width: '100%', padding: '10px', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                      ✓ Listo para Empaque
-                    </button>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </main>
@@ -454,14 +594,18 @@ export default function GastronomicSystem() {
 
       {/* VISTA POS */}
       {activeTab === 'pos' && (
-        <main style={{ padding: '20px', maxWidth: '650px', margin: '0 auto' }}>
+        <main style={{ padding: '20px', maxWidth: '700px', margin: '0 auto' }}>
           <div style={{ backgroundColor: '#1e293b', padding: '20px', borderRadius: '10px' }}>
             <h2 style={{ fontSize: '18px', marginBottom: '16px' }}>Nuevo Pedido (POS)</h2>
             
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '10px', marginBottom: '12px' }}>
               <div>
                 <label style={{ fontSize: '12px', color: '#94a3b8' }}>Nombre Cliente</label>
                 <input type="text" placeholder="Ej: Juan Pérez" value={customerName} onChange={(e) => setCustomerName(e.target.value)} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', color: '#94a3b8' }}>Teléfono (WhatsApp)</label>
+                <input type="text" placeholder="Ej: 982565002" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }} />
               </div>
               <div>
                 <label style={{ fontSize: '12px', color: '#94a3b8' }}>Método de Pago</label>
@@ -473,7 +617,7 @@ export default function GastronomicSystem() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px', marginBottom: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '10px', marginBottom: '12px' }}>
               <div>
                 <label style={{ fontSize: '12px', color: '#94a3b8' }}>Tipo de Pedido</label>
                 <select value={orderType} onChange={(e: any) => setOrderType(e.target.value)} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }}>
@@ -485,6 +629,10 @@ export default function GastronomicSystem() {
                 <label style={{ fontSize: '12px', color: '#94a3b8' }}>Dirección / Referencia</label>
                 <input type="text" placeholder="Ej: Pasaje Lomas Coloradas 3352" value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }} />
               </div>
+              <div>
+                <label style={{ fontSize: '12px', color: '#94a3b8' }}>Recargo Envío ($)</label>
+                <input type="number" placeholder="Ej: 2000" disabled={orderType !== 'DELIVERY'} value={deliveryFee} onChange={(e) => setDeliveryFee(Number(e.target.value))} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: orderType === 'DELIVERY' ? '#0f172a' : '#1e293b', color: '#fff', border: '1px solid #334155' }} />
+              </div>
             </div>
 
             <hr style={{ borderColor: '#334155', margin: '16px 0' }} />
@@ -493,14 +641,14 @@ export default function GastronomicSystem() {
               <label style={{ fontSize: '12px', color: '#94a3b8' }}>Buscar en Carta de Productos</label>
               <input
                 type="text"
-                placeholder="🔍 Escribe para buscar (ej: promo, roll, panko, avocado)..."
+                placeholder="🔍 Escribe para buscar (ej: promo, roll, panko, handroll)..."
                 value={productSearch}
                 onChange={(e) => setProductSearch(e.target.value)}
                 style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }}
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr auto', gap: '8px', alignItems: 'end' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '8px', alignItems: 'end' }}>
               <div>
                 <label style={{ fontSize: '11px', color: '#94a3b8' }}>Producto Seleccionado</label>
                 <select
@@ -523,11 +671,31 @@ export default function GastronomicSystem() {
                 <label style={{ fontSize: '11px', color: '#94a3b8' }}>Cant.</label>
                 <input type="number" min="1" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }} />
               </div>
-              <div>
-                <label style={{ fontSize: '11px', color: '#94a3b8' }}>Salsas / Notas</label>
-                <input type="text" placeholder="Ej: 2 Teriyaki, 1 Spicy" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }} />
+              <button type="button" onClick={addItemToCart} style={{ padding: '8px 14px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>+ Añadir</button>
+            </div>
+
+            {/* BOTONES RÁPIDOS DE SALSAS Y NOTAS */}
+            <div style={{ marginTop: '10px' }}>
+              <label style={{ fontSize: '11px', color: '#94a3b8' }}>Salsas / Modificadores Rápidos:</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                {['Teriyaki', 'Acevichada', 'Spicy', 'Maracuyá', 'Mango', 'Soya', 'Sin Queso', 'Sin Cebollín', 'Cambio Panko'].map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => appendSauceNote(tag)}
+                    style={{ fontSize: '11px', padding: '4px 8px', backgroundColor: '#334155', border: '1px solid #475569', color: '#cbd5e1', borderRadius: '4px', cursor: 'pointer' }}
+                  >
+                    + {tag}
+                  </button>
+                ))}
               </div>
-              <button type="button" onClick={addItemToCart} style={{ padding: '8px 12px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>+ Añadir</button>
+              <input
+                type="text"
+                placeholder="Notas personalizadas (ej: 2 Teriyaki, 1 Acevichada)"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                style={{ width: '100%', padding: '6px 8px', marginTop: '6px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155', fontSize: '12px' }}
+              />
             </div>
 
             <div style={{ marginTop: '16px', backgroundColor: '#0f172a', padding: '12px', borderRadius: '6px' }}>
@@ -541,10 +709,16 @@ export default function GastronomicSystem() {
                       <span>${item.subtotal.toLocaleString('es-CL')}</span>
                     </li>
                   ))}
+                  {orderType === 'DELIVERY' && deliveryFee > 0 && (
+                    <li style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: '#38bdf8' }}>
+                      <span>🛵 Recargo Delivery</span>
+                      <span>${deliveryFee.toLocaleString('es-CL')}</span>
+                    </li>
+                  )}
                 </ul>
               )}
-              <div style={{ marginTop: '10px', textAlign: 'right', fontWeight: 'bold' }}>
-                Total: ${cart.reduce((acc, it) => acc + it.subtotal, 0).toLocaleString('es-CL')}
+              <div style={{ marginTop: '10px', textAlign: 'right', fontWeight: 'bold', fontSize: '16px' }}>
+                Total: ${(cart.reduce((acc, it) => acc + it.subtotal, 0) + (orderType === 'DELIVERY' ? Number(deliveryFee) : 0)).toLocaleString('es-CL')}
               </div>
             </div>
 
@@ -638,15 +812,19 @@ export default function GastronomicSystem() {
                       <th style={{ padding: '8px' }}>Producto</th>
                       <th style={{ padding: '8px' }}>Categoría</th>
                       <th style={{ padding: '8px', textAlign: 'right' }}>Precio</th>
+                      <th style={{ padding: '8px', textAlign: 'center' }}>Acción</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {productsList.map((p, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid #243049' }}>
+                    {productsList.map((p) => (
+                      <tr key={p.id} style={{ borderBottom: '1px solid #243049' }}>
                         <td style={{ padding: '8px', fontWeight: 'bold' }}>{p.name}</td>
                         <td style={{ padding: '8px', color: '#94a3b8', fontSize: '12px' }}>{p.category || 'General'}</td>
                         <td style={{ padding: '8px', textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>
                           ${getProductPrice(p).toLocaleString('es-CL')}
+                        </td>
+                        <td style={{ padding: '8px', textAlign: 'center' }}>
+                          <button onClick={() => handleDeleteProduct(p.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '14px' }} title="Eliminar">🗑️</button>
                         </td>
                       </tr>
                     ))}
@@ -658,16 +836,28 @@ export default function GastronomicSystem() {
         </main>
       )}
 
-      {/* VISTA HISTORIAL */}
+      {/* VISTA HISTORIAL Y CIERRE DE CAJA */}
       {activeTab === 'history' && (
         <main style={{ padding: '20px', maxWidth: '900px', margin: '0 auto' }}>
+          {/* Barra de Filtros y Cierre */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button onClick={() => setHistoryFilter('TODAY')} style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: historyFilter === 'TODAY' ? '#3b82f6' : '#334155', color: '#fff', fontWeight: 'bold' }}>Hoy</button>
+              <button onClick={() => setHistoryFilter('YESTERDAY')} style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: historyFilter === 'YESTERDAY' ? '#3b82f6' : '#334155', color: '#fff', fontWeight: 'bold' }}>Ayer</button>
+              <button onClick={() => setHistoryFilter('ALL')} style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: historyFilter === 'ALL' ? '#3b82f6' : '#334155', color: '#fff', fontWeight: 'bold' }}>Todos</button>
+            </div>
+            <button onClick={exportToCSV} style={{ padding: '6px 14px', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+              📥 Exportar Ventas a Excel
+            </button>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
             <div style={{ backgroundColor: '#1e293b', padding: '16px', borderRadius: '10px', borderLeft: '4px solid #10b981' }}>
-              <div style={{ fontSize: '12px', color: '#94a3b8' }}>TOTAL VENTAS</div>
+              <div style={{ fontSize: '12px', color: '#94a3b8' }}>TOTAL VENTAS ({historyFilter === 'TODAY' ? 'HOY' : historyFilter === 'YESTERDAY' ? 'AYER' : 'HISTÓRICO'})</div>
               <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#10b981', marginTop: '4px' }}>
-                ${totalSalesToday.toLocaleString('es-CL')}
+                ${totalSalesFiltered.toLocaleString('es-CL')}
               </div>
-              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{allOrdersHistory.length} Pedidos</div>
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{filteredHistory.length} Pedidos</div>
             </div>
 
             <div style={{ backgroundColor: '#1e293b', padding: '16px', borderRadius: '10px', borderLeft: '4px solid #3b82f6' }}>
@@ -693,9 +883,9 @@ export default function GastronomicSystem() {
           </div>
 
           <div style={{ backgroundColor: '#1e293b', padding: '20px', borderRadius: '10px' }}>
-            <h3 style={{ fontSize: '16px', marginBottom: '14px' }}>Historial Completo de Pedidos</h3>
-            {allOrdersHistory.length === 0 ? (
-              <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aún no se registran pedidos.</p>
+            <h3 style={{ fontSize: '16px', marginBottom: '14px' }}>Historial Detallado</h3>
+            {filteredHistory.length === 0 ? (
+              <p style={{ color: '#94a3b8', fontSize: '13px' }}>No hay ventas registradas para este periodo.</p>
             ) : (
               <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
@@ -711,7 +901,7 @@ export default function GastronomicSystem() {
                     </tr>
                   </thead>
                   <tbody>
-                    {allOrdersHistory.map((o) => (
+                    {filteredHistory.map((o) => (
                       <tr key={o.id} style={{ borderBottom: '1px solid #243049' }}>
                         <td style={{ padding: '8px', fontWeight: 'bold', color: '#38bdf8' }}>#{o.daily_order_number}</td>
                         <td style={{ padding: '8px', color: '#94a3b8' }}>
