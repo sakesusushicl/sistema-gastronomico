@@ -32,10 +32,9 @@ export default function GastronomicSystem() {
   const [activeTab, setActiveTab] = useState<'kds' | 'pos'>('kds');
   const [orders, setOrders] = useState<Order[]>([]);
 
-  // Estados del POS
   const [customerName, setCustomerName] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'Efectivo' | 'Transferencia' | 'Débito'>('Efectivo');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER'>('CASH');
   const [orderType, setOrderType] = useState<'DELIVERY' | 'PICKUP'>('DELIVERY');
   const [selectedProduct, setSelectedProduct] = useState('Promo 30 Piezas Mixtas');
   const [productPrice, setProductPrice] = useState(14990);
@@ -69,6 +68,11 @@ export default function GastronomicSystem() {
   const updateOrderStatus = async (orderId: number, nextStatus: string) => {
     await supabase.from('orders').update({ status: nextStatus }).eq('id', orderId);
     fetchOrders();
+  };
+
+  const getPaymentLabel = (method?: string) => {
+    if (method === 'TRANSFER') return 'TRANSFERENCIA';
+    return 'EFECTIVO / DÉBITO';
   };
 
   const printProfessionalTicket = (order: Order) => {
@@ -114,15 +118,8 @@ export default function GastronomicSystem() {
           <meta charset="utf-8" />
           <title>Ticket #${order.daily_order_number}</title>
           <style>
-            @page {
-              margin: 0;
-              size: auto;
-            }
-            * {
-              box-sizing: border-box;
-              margin: 0;
-              padding: 0;
-            }
+            @page { margin: 0; size: auto; }
+            * { box-sizing: border-box; margin: 0; padding: 0; }
             body {
               font-family: Arial, Helvetica, sans-serif;
               width: 72mm;
@@ -138,28 +135,15 @@ export default function GastronomicSystem() {
             .divider-solid { border-top: 2px solid #000; margin: 6px 0; }
             .divider-dashed { border-top: 1px dashed #000; margin: 6px 0; }
             .row { display: flex; justify-content: space-between; align-items: center; }
-            .order-badge {
-              font-size: 24px;
-              font-weight: 900;
-              text-align: center;
-              padding: 3px 0;
-            }
-            .type-badge {
-              font-size: 15px;
-              font-weight: 800;
-              text-align: center;
-              letter-spacing: 0.5px;
-            }
+            .order-badge { font-size: 24px; font-weight: 900; text-align: center; padding: 3px 0; }
+            .type-badge { font-size: 15px; font-weight: 800; text-align: center; }
             @media print {
-              body {
-                width: 100% !important;
-                padding: 2mm 0 !important;
-              }
+              body { width: 100% !important; padding: 2mm 0 !important; }
             }
           </style>
         </head>
         <body>
-          <div class="center bold" style="font-size: 18px; letter-spacing: 0.5px;">SAKESU SUSHI</div>
+          <div class="center bold" style="font-size: 18px;">SAKESU SUSHI</div>
           <div class="center" style="font-size: 11px; margin-top: 1px;">COMANDA DE PRODUCCIÓN</div>
           
           <div class="divider-solid"></div>
@@ -179,7 +163,7 @@ export default function GastronomicSystem() {
                    </div>`
                 : ''
             }
-            <div style="margin-top: 4px; font-size: 13px; font-weight: bold;"><strong>MÉTODO DE PAGO:</strong> ${order.payment_method ? order.payment_method.toUpperCase() : 'EFECTIVO'}</div>
+            <div style="margin-top: 4px; font-size: 13px; font-weight: bold;"><strong>MÉTODO DE PAGO:</strong> ${getPaymentLabel(order.payment_method)}</div>
           </div>
 
           <div class="divider-solid"></div>
@@ -317,7 +301,7 @@ export default function GastronomicSystem() {
                   </div>
                   {order.customer_name && <p style={{ fontSize: '13px', color: '#f1f5f9', fontWeight: 'bold', margin: '6px 0 2px 0' }}>👤 {order.customer_name}</p>}
                   {order.delivery_address && <p style={{ fontSize: '12px', color: '#94a3b8', margin: '2px 0' }}>📍 {order.delivery_address}</p>}
-                  {order.payment_method && <p style={{ fontSize: '12px', color: '#34d399', margin: '2px 0 10px 0' }}>💳 Pago: {order.payment_method}</p>}
+                  {order.payment_method && <p style={{ fontSize: '12px', color: '#34d399', margin: '2px 0 10px 0' }}>💳 Pago: {getPaymentLabel(order.payment_method)}</p>}
                   <hr style={{ borderColor: '#334155', margin: '8px 0' }} />
                   <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 14px 0' }}>
                     {order.order_items?.map((item, idx) => (
@@ -357,9 +341,8 @@ export default function GastronomicSystem() {
               <div>
                 <label style={{ fontSize: '12px', color: '#94a3b8' }}>Método de Pago</label>
                 <select value={paymentMethod} onChange={(e: any) => setPaymentMethod(e.target.value)} style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }}>
-                  <option value="Efectivo">Efectivo</option>
-                  <option value="Transferencia">Transferencia</option>
-                  <option value="Débito">Débito</option>
+                  <option value="CASH">Efectivo / Débito</option>
+                  <option value="TRANSFER">Transferencia</option>
                 </select>
               </div>
             </div>
