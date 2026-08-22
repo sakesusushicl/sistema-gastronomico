@@ -5,7 +5,6 @@ export const metadata: Metadata = {
   title: 'Sakesu Sushi Delivery | POS & KDS',
   description: 'Sistema integral gastronómico para Sakesu Sushi Delivery',
   manifest: '/manifest.json',
-  themeColor: '#1e293b',
 };
 
 export default function RootLayout({
