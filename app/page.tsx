@@ -127,7 +127,6 @@ export default function GastronomicSystem() {
     if (!newProdName.trim() || !newProdPrice) return;
     setIsSavingProduct(true);
 
-    // Limpia puntos y letras para guardar números enteros limpios (ej: "17.990" -> 17990)
     const cleanPrice = Number(String(newProdPrice).replace(/[^0-9]/g, ''));
 
     const { error } = await supabase.from('products').insert([
@@ -468,7 +467,7 @@ export default function GastronomicSystem() {
               <label style={{ fontSize: '12px', color: '#94a3b8' }}>Buscar en Carta de Productos</label>
               <input
                 type="text"
-                placeholder="🔍 Escribe para buscar (ej: promo, handroll, roll)..."
+                placeholder="🔍 Escribe para buscar (ej: promo, roll, panko, avocado)..."
                 value={productSearch}
                 onChange={(e) => setProductSearch(e.target.value)}
                 style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }}
@@ -535,12 +534,12 @@ export default function GastronomicSystem() {
         <main style={{ padding: '20px', maxWidth: '700px', margin: '0 auto' }}>
           <div style={{ backgroundColor: '#1e293b', padding: '20px', borderRadius: '10px', marginBottom: '20px' }}>
             <h2 style={{ fontSize: '18px', marginBottom: '14px' }}>➕ Añadir Nuevo Producto a la Carta</h2>
-            <form onSubmit={handleCreateProduct} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.2fr auto', gap: '10px', alignItems: 'end' }}>
+            <form onSubmit={handleCreateProduct} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.3fr auto', gap: '10px', alignItems: 'end' }}>
               <div>
                 <label style={{ fontSize: '12px', color: '#94a3b8' }}>Nombre del Producto</label>
                 <input
                   type="text"
-                  placeholder="Ej: Promo 40 Pzs Furay"
+                  placeholder="Ej: Roll Avocado Ebi"
                   value={newProdName}
                   onChange={(e) => setNewProdName(e.target.value)}
                   required
@@ -551,7 +550,7 @@ export default function GastronomicSystem() {
                 <label style={{ fontSize: '12px', color: '#94a3b8' }}>Precio ($)</label>
                 <input
                   type="text"
-                  placeholder="Ej: 16990"
+                  placeholder="Ej: 5990"
                   value={newProdPrice}
                   onChange={(e) => setNewProdPrice(e.target.value)}
                   required
@@ -566,10 +565,12 @@ export default function GastronomicSystem() {
                   style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }}
                 >
                   <option value="Promociones">Promociones</option>
-                  <option value="Handrolls">Handrolls</option>
+                  <option value="Rolls Simples">Rolls Simples</option>
                   <option value="Rolls Especiales">Rolls Especiales</option>
+                  <option value="Handrolls">Handrolls</option>
                   <option value="Gohan / Bowls">Gohan / Bowls</option>
-                  <option value="Bebidas / Extras">Bebidas / Extras</option>
+                  <option value="Entradas / Snacks">Entradas / Snacks</option>
+                  <option value="Bebidas / Salsas / Extras">Bebidas / Salsas / Extras</option>
                 </select>
               </div>
               <button
