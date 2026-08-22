@@ -43,6 +43,17 @@ export default function GastronomicSystem() {
   const [allOrdersHistory, setAllOrdersHistory] = useState<Order[]>([]);
   const [productsList, setProductsList] = useState<Product[]>([]);
 
+  // Categorías base
+  const [customCategories, setCustomCategories] = useState<string[]>([
+    'Promociones',
+    'Rolls Simples',
+    'Rolls Especiales',
+    'Handrolls',
+    'Gohan / Bowls',
+    'Entradas / Snacks',
+    'Bebidas / Salsas / Extras'
+  ]);
+
   // POS State
   const [customerName, setCustomerName] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
@@ -59,6 +70,8 @@ export default function GastronomicSystem() {
   const [newProdName, setNewProdName] = useState('');
   const [newProdPrice, setNewProdPrice] = useState('');
   const [newProdCategory, setNewProdCategory] = useState('Promociones');
+  const [isAddingNewCategory, setIsAddingNewCategory] = useState(false);
+  const [newCustomCatInput, setNewCustomCatInput] = useState('');
   const [isSavingProduct, setIsSavingProduct] = useState(false);
 
   const getProductPrice = (p?: Product | null): number => {
@@ -95,6 +108,9 @@ export default function GastronomicSystem() {
       if (!selectedProductObj) {
         setSelectedProductObj(data[0]);
       }
+      // Detectar categorías únicas existentes en la base de datos
+      const existingCats = Array.from(new Set(data.map((p) => p.category).filter(Boolean)));
+      setCustomCategories((prev) => Array.from(new Set([...prev, ...existingCats])));
     }
   };
 
@@ -125,21 +141,31 @@ export default function GastronomicSystem() {
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProdName.trim() || !newProdPrice) return;
-    setIsSavingProduct(true);
 
+    const finalCategory = isAddingNewCategory
+      ? newCustomCatInput.trim() || 'General'
+      : newProdCategory;
+
+    setIsSavingProduct(true);
     const cleanPrice = Number(String(newProdPrice).replace(/[^0-9]/g, ''));
 
     const { error } = await supabase.from('products').insert([
       {
         name: newProdName.trim(),
         price: cleanPrice,
-        category: newProdCategory
+        category: finalCategory
       }
     ]);
 
     if (error) {
       alert('Error al guardar producto: ' + error.message);
     } else {
+      if (isAddingNewCategory && newCustomCatInput.trim()) {
+        setCustomCategories((prev) => Array.from(new Set([...prev, newCustomCatInput.trim()])));
+        setNewProdCategory(newCustomCatInput.trim());
+        setIsAddingNewCategory(false);
+        setNewCustomCatInput('');
+      }
       setNewProdName('');
       setNewProdPrice('');
       fetchProducts();
@@ -531,10 +557,20 @@ export default function GastronomicSystem() {
 
       {/* VISTA CARTA */}
       {activeTab === 'products' && (
-        <main style={{ padding: '20px', maxWidth: '700px', margin: '0 auto' }}>
+        <main style={{ padding: '20px', maxWidth: '750px', margin: '0 auto' }}>
           <div style={{ backgroundColor: '#1e293b', padding: '20px', borderRadius: '10px', marginBottom: '20px' }}>
-            <h2 style={{ fontSize: '18px', marginBottom: '14px' }}>➕ Añadir Nuevo Producto a la Carta</h2>
-            <form onSubmit={handleCreateProduct} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.3fr auto', gap: '10px', alignItems: 'end' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h2 style={{ fontSize: '18px', margin: 0 }}>➕ Añadir Producto a la Carta</h2>
+              <button
+                type="button"
+                onClick={() => setIsAddingNewCategory(!isAddingNewCategory)}
+                style={{ fontSize: '12px', backgroundColor: isAddingNewCategory ? '#ef4444' : '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', padding: '5px 10px', cursor: 'pointer', fontWeight: 'bold' }}
+              >
+                {isAddingNewCategory ? '✕ Cancelar' : '＋ Crear Nueva Categoría'}
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateProduct} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr auto', gap: '10px', alignItems: 'end' }}>
               <div>
                 <label style={{ fontSize: '12px', color: '#94a3b8' }}>Nombre del Producto</label>
                 <input
@@ -559,19 +595,26 @@ export default function GastronomicSystem() {
               </div>
               <div>
                 <label style={{ fontSize: '12px', color: '#94a3b8' }}>Categoría</label>
-                <select
-                  value={newProdCategory}
-                  onChange={(e) => setNewProdCategory(e.target.value)}
-                  style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }}
-                >
-                  <option value="Promociones">Promociones</option>
-                  <option value="Rolls Simples">Rolls Simples</option>
-                  <option value="Rolls Especiales">Rolls Especiales</option>
-                  <option value="Handrolls">Handrolls</option>
-                  <option value="Gohan / Bowls">Gohan / Bowls</option>
-                  <option value="Entradas / Snacks">Entradas / Snacks</option>
-                  <option value="Bebidas / Salsas / Extras">Bebidas / Salsas / Extras</option>
-                </select>
+                {isAddingNewCategory ? (
+                  <input
+                    type="text"
+                    placeholder="Escribe la categoría (ej: Niguiris)"
+                    value={newCustomCatInput}
+                    onChange={(e) => setNewCustomCatInput(e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#38bdf8', border: '1px solid #38bdf8', fontWeight: 'bold' }}
+                  />
+                ) : (
+                  <select
+                    value={newProdCategory}
+                    onChange={(e) => setNewProdCategory(e.target.value)}
+                    style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155' }}
+                  >
+                    {customCategories.map((cat, i) => (
+                      <option key={i} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                )}
               </div>
               <button
                 type="submit"
