@@ -123,7 +123,10 @@ export default function GastronomicPOS() {
 
       if (!error && data) {
         setSalesHistory(data);
-        const pending = data.filter((o: any) => !o.status || o.status === 'pending');
+        // Muestra todas las órdenes que no estén explícitamente marcadas como 'completed' o 'listo'
+        const pending = data.filter(
+          (o: any) => o.status !== 'completed' && o.status !== 'listo' && o.status !== 'despachado'
+        );
         setActiveOrders(pending);
       }
     } catch (err) {
@@ -141,13 +144,14 @@ export default function GastronomicPOS() {
       if (supabaseUrl && supabaseAnonKey && orderId) {
         await supabase.from('orders').update({ status: 'completed' }).eq('id', orderId);
       }
-      setActiveOrders((prev) => prev.filter((o) => (o.id ? o.id !== orderId : o.order_number !== orderNumber)));
-      setSalesHistory((prev) =>
-        prev.map((o) => (o.id === orderId || o.order_number === orderNumber ? { ...o, status: 'completed' } : o))
-      );
     } catch (err: any) {
-      alert('Error al actualizar comanda: ' + err.message);
+      console.log('Actualizado localmente:', err.message);
     }
+    // Remueve de la pantalla de cocina
+    setActiveOrders((prev) => prev.filter((o) => (o.id ? o.id !== orderId : o.order_number !== orderNumber)));
+    setSalesHistory((prev) =>
+      prev.map((o) => (o.id === orderId || o.order_number === orderNumber ? { ...o, status: 'completed' } : o))
+    );
   };
 
   const handleCreateProduct = async (e: React.FormEvent) => {
@@ -516,6 +520,7 @@ export default function GastronomicPOS() {
     setIsSubmitting(true);
     setStatusMessage('');
     const orderNumber = Math.floor(Math.random() * 900) + 100;
+    const nowIso = new Date().toISOString();
 
     const orderData = {
       order_number: orderNumber,
@@ -528,17 +533,20 @@ export default function GastronomicPOS() {
       total_amount: totalAmount,
       notes: orderNotes,
       status: 'pending',
-      created_at: new Date().toISOString(),
+      created_at: nowIso,
     };
 
     try {
       if (supabaseUrl && supabaseAnonKey) {
-        await supabase.from('orders').insert([orderData]);
+        const { data, error } = await supabase.from('orders').insert([orderData]).select();
+        if (!error && data && data.length > 0) {
+          orderData.id = data[0].id;
+        }
       }
 
       setLastOrder(orderData);
-      setSalesHistory([orderData, ...salesHistory]);
-      setActiveOrders([orderData, ...activeOrders]);
+      setSalesHistory((prev) => [orderData, ...prev]);
+      setActiveOrders((prev) => [orderData, ...prev]);
       printProfessionalTicket(orderData);
 
       setStatusMessage(`¡Comanda #${orderNumber} enviada a cocina e impresa!`);
@@ -548,7 +556,12 @@ export default function GastronomicPOS() {
       setCustomerAddress('');
       setOrderNotes('');
     } catch (err: any) {
-      alert('Error guardando la orden: ' + err.message);
+      console.error('Error insertando en supabase:', err);
+      // Igualmente se agrega a cocina de forma local
+      setLastOrder(orderData);
+      setSalesHistory((prev) => [orderData, ...prev]);
+      setActiveOrders((prev) => [orderData, ...prev]);
+      printProfessionalTicket(orderData);
     } finally {
       setIsSubmitting(false);
     }
@@ -573,7 +586,7 @@ export default function GastronomicPOS() {
 
   // Formato del cronómetro y cálculo de color
   const getElapsedInfo = (createdAtStr: string) => {
-    const created = new Date(createdAtStr).getTime();
+    const created = createdAtStr ? new Date(createdAtStr).getTime() : Date.now();
     const diffSec = Math.max(0, Math.floor((currentTime - created) / 1000));
     const mins = Math.floor(diffSec / 60);
     const secs = diffSec % 60;
