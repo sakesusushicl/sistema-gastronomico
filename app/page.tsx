@@ -40,6 +40,7 @@ export default function GastronomicPOS() {
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>('');
+  const [lastOrder, setLastOrder] = useState<any>(null);
 
   // Cargar productos desde Supabase
   useEffect(() => {
@@ -56,7 +57,6 @@ export default function GastronomicPOS() {
           const cats = Array.from(new Set(data.map((p: any) => p.category).filter(Boolean))) as string[];
           setCategories(['Todos', ...cats]);
         } else {
-          // Menú base de respaldo si la tabla estuviera vacía
           const fallback: Product[] = [
             { id: 1, name: 'Promo 30 Piezas', price: 14990, category: 'Promociones' },
             { id: 2, name: 'Promo 40 Piezas', price: 18990, category: 'Promociones' },
@@ -129,22 +129,104 @@ export default function GastronomicPOS() {
     return matchCategory && matchSearch;
   });
 
-  const sendPointPayment = async (amount: number, orderId: string) => {
-    try {
-      const res = await fetch('/api/point', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, orderId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert('Aviso Maquinita: ' + (data.error || 'Error al conectar con la Point Smart'));
-      } else {
-        alert('¡Monto enviado a la Point Smart 2! Pasa la tarjeta en la terminal.');
-      }
-    } catch (err: any) {
-      console.error('Error al conectar con Point:', err);
+  // Función de impresión térmica profesional
+  const printProfessionalTicket = (order: any) => {
+    const w = window.open('', '_blank', 'width=380,height=600');
+    if (!w) {
+      alert('Por favor habilita las ventanas emergentes (pop-ups) en tu navegador para imprimir.');
+      return;
     }
+
+    const now = new Date();
+    const fecha = now.toLocaleDateString('es-CL');
+    const hora = now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+
+    const itemsRows = order.items
+      .map(
+        (it: any) => `
+        <div style="display:flex; justify-content:space-between; margin-bottom: 4px; font-size: 13px;">
+          <span><strong>${it.quantity}x</strong> ${it.product_name}</span>
+          <span>$${Number(it.subtotal).toLocaleString('es-CL')}</span>
+        </div>
+        ${it.special_notes ? `<div style="font-size: 11px; font-style: italic; margin-bottom: 4px; padding-left: 8px;">• ${it.special_notes}</div>` : ''}
+      `
+      )
+      .join('');
+
+    w.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Comanda #${order.order_number}</title>
+        <style>
+          @page { margin: 0; size: auto; }
+          body {
+            font-family: 'Courier New', Courier, monospace;
+            width: 280px;
+            margin: 0 auto;
+            padding: 10px 5px;
+            color: #000;
+            background: #fff;
+          }
+          .center { text-align: center; }
+          .bold { font-weight: bold; }
+          .divider-solid { border-bottom: 2px solid #000; margin: 6px 0; }
+          .divider-dashed { border-bottom: 1px dashed #000; margin: 6px 0; }
+          .order-badge {
+            font-size: 20px;
+            font-weight: 900;
+            text-align: center;
+            margin: 4px 0;
+          }
+          .type-badge {
+            font-size: 13px;
+            font-weight: bold;
+            text-align: center;
+          }
+          .row { display: flex; justify-content: space-between; }
+        </style>
+      </head>
+      <body>
+        <div class="center bold" style="font-size: 18px;">SAKESU SUSHI</div>
+        <div class="center" style="font-size: 11px;">COMANDA DE PRODUCCIÓN</div>
+        <div class="divider-solid"></div>
+
+        <div class="order-badge">ORDEN #${order.order_number}</div>
+        <div class="type-badge">*** ${order.order_type.toUpperCase()} ***</div>
+        <div class="divider-dashed"></div>
+
+        <div style="font-size: 12px; line-height: 1.35;">
+          <div><strong>FECHA:</strong> ${fecha} <strong>HORA:</strong> ${hora}</div>
+          <div style="margin-top: 3px;"><strong>CLIENTE:</strong> ${order.customer_name ? order.customer_name.toUpperCase() : 'NO ESPECIFICADO'}</div>
+          ${order.customer_phone ? `<div><strong>TEL:</strong> ${order.customer_phone}</div>` : ''}
+          ${order.delivery_address ? `<div style="margin-top: 4px; font-weight: 900; border: 1px solid #000; padding: 3px;">DIR: ${order.delivery_address.toUpperCase()}</div>` : ''}
+          <div style="margin-top: 4px;"><strong>PAGO:</strong> ${order.payment_method.toUpperCase()}</div>
+          ${order.notes ? `<div style="margin-top: 4px;"><strong>NOTA:</strong> ${order.notes}</div>` : ''}
+        </div>
+
+        <div class="divider-solid"></div>
+        <div style="font-size: 12px; font-weight: bold; margin-bottom: 6px;">DETALLE DE PRODUCTOS:</div>
+        <div>${itemsRows}</div>
+
+        <div class="divider-solid"></div>
+        <div class="row bold" style="font-size: 16px; padding-top: 2px;">
+          <span>TOTAL:</span>
+          <span>$${Number(order.total_amount).toLocaleString('es-CL')}</span>
+        </div>
+        <div class="divider-dashed"></div>
+        <div class="center" style="font-size: 10px; font-weight: bold; margin-top: 6px;">- FIN DE COMANDA -</div>
+
+        <script>
+          window.onload = function() {
+            window.focus();
+            window.print();
+            setTimeout(function() { window.close(); }, 500);
+          };
+        </script>
+      </body>
+      </html>
+    `);
+    w.document.close();
   };
 
   const handleSubmitOrder = async (e: React.FormEvent) => {
@@ -158,29 +240,28 @@ export default function GastronomicPOS() {
     setStatusMessage('');
     const orderNumber = Date.now().toString().slice(-6);
 
+    const orderData = {
+      order_number: orderNumber,
+      customer_name: customerName || 'Cliente General',
+      customer_phone: customerPhone,
+      delivery_address: customerAddress,
+      order_type: orderType,
+      payment_method: paymentMethod,
+      items: orderItems,
+      total_amount: totalAmount,
+      notes: orderNotes,
+      status: 'pending',
+    };
+
     try {
       if (supabaseUrl && supabaseAnonKey) {
-        await supabase.from('orders').insert([
-          {
-            order_number: orderNumber,
-            customer_name: customerName || 'Cliente General',
-            customer_phone: customerPhone,
-            delivery_address: customerAddress,
-            order_type: orderType,
-            payment_method: paymentMethod,
-            items: orderItems,
-            total_amount: totalAmount,
-            notes: orderNotes,
-            status: 'pending',
-          },
-        ]);
+        await supabase.from('orders').insert([orderData]);
       }
 
-      if (paymentMethod === 'Mercado Pago Point') {
-        await sendPointPayment(totalAmount, orderNumber);
-      }
+      setLastOrder(orderData);
+      printProfessionalTicket(orderData);
 
-      setStatusMessage(`¡Comanda #${orderNumber} creada con éxito!`);
+      setStatusMessage(`¡Comanda #${orderNumber} enviada e impresa!`);
       setOrderItems([]);
       setCustomerName('');
       setCustomerPhone('');
@@ -274,9 +355,20 @@ export default function GastronomicPOS() {
       {/* Panel Derecho: Comanda Actual */}
       <div style={{ width: '390px', backgroundColor: '#121212', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
         <div>
-          <h2 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 'bold', color: '#ef4444', borderBottom: '1px solid #262626', paddingBottom: '8px' }}>
-            Comanda Actual
-          </h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #262626', paddingBottom: '8px', marginBottom: '16px' }}>
+            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#ef4444' }}>
+              Comanda Actual
+            </h2>
+            {lastOrder && (
+              <button
+                type="button"
+                onClick={() => printProfessionalTicket(lastOrder)}
+                style={{ padding: '4px 10px', backgroundColor: '#262626', border: '1px solid #404040', color: '#fff', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
+              >
+                🖨️ Re-imprimir #{lastOrder.order_number}
+              </button>
+            )}
+          </div>
 
           {/* Lista de Items */}
           <div style={{ maxHeight: '230px', overflowY: 'auto', marginBottom: '16px' }}>
@@ -345,9 +437,8 @@ export default function GastronomicPOS() {
                 style={{ width: '100%', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #262626', borderRadius: '6px', color: '#fff', fontSize: '13px', outline: 'none' }}
               >
                 <option value="Efectivo">Efectivo</option>
-                <option value="Débito">Débito</option>
+                <option value="Débito / Tarjeta">Débito / Tarjeta</option>
                 <option value="Transferencia">Transferencia</option>
-                <option value="Mercado Pago Point">💳 Point Smart 2</option>
               </select>
             </div>
 
@@ -386,7 +477,7 @@ export default function GastronomicPOS() {
                 marginTop: '6px',
               }}
             >
-              {isSubmitting ? 'Procesando...' : 'Confirmar y Cobrar'}
+              {isSubmitting ? 'Guardando...' : '🖨️ Confirmar e Imprimir'}
             </button>
           </form>
         </div>
