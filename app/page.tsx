@@ -122,6 +122,7 @@ export default function GastronomicPOS() {
     fetchSales();
   }, []);
 
+  // Agregar nuevo producto a Supabase
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProdName || !newProdPrice) {
@@ -152,6 +153,7 @@ export default function GastronomicPOS() {
     }
   };
 
+  // Eliminar producto de Supabase
   const handleDeleteProduct = async (prodId: any, prodName: string) => {
     if (!confirm(`¿Estás seguro de que deseas eliminar "${prodName}" de la carta?`)) return;
 
@@ -225,24 +227,6 @@ export default function GastronomicPOS() {
     const matchSearch = name.toLowerCase().includes(searchTerm.toLowerCase());
     return matchCategory && matchSearch;
   });
-
-  const sendPointPayment = async (amount: number, orderId: string | number) => {
-    try {
-      const res = await fetch('/api/point', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, orderId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert('Aviso Point Smart: ' + (data.error || 'Error al conectar'));
-      } else {
-        alert('💳 ¡Cobro enviado a la Point Smart 2! Pasa la tarjeta en la maquinita.');
-      }
-    } catch (err: any) {
-      console.error('Error al conectar con Point:', err);
-    }
-  };
 
   const printProfessionalTicket = (order: any) => {
     const w = window.open('', '_blank', 'width=380,height=600');
@@ -381,7 +365,7 @@ export default function GastronomicPOS() {
       .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
 
     const totalDebitSales = salesHistory
-      .filter((s) => (s.payment_method || '').toUpperCase().includes('DÉBITO') || (s.payment_method || '').toUpperCase().includes('DEBITO') || (s.payment_method || '').toUpperCase().includes('POINT'))
+      .filter((s) => (s.payment_method || '').toUpperCase().includes('DÉBITO') || (s.payment_method || '').toUpperCase().includes('DEBITO'))
       .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
 
     const totalTransferSales = salesHistory
@@ -433,7 +417,7 @@ export default function GastronomicPOS() {
           <span>$${totalCashSales.toLocaleString('es-CL')}</span>
         </div>
         <div class="row">
-          <span>(+) DÉBITO / POINT:</span>
+          <span>(+) DÉBITO / TARJETA:</span>
           <span>$${totalDebitSales.toLocaleString('es-CL')}</span>
         </div>
         <div class="row">
@@ -525,11 +509,6 @@ export default function GastronomicPOS() {
         await supabase.from('orders').insert([orderData]);
       }
 
-      // Si se selecciona la maquinita, envía el cobro a la Point Smart 2
-      if (paymentMethod === 'POINT SMART 2') {
-        await sendPointPayment(totalAmount, orderNumber);
-      }
-
       setLastOrder(orderData);
       setSalesHistory([orderData, ...salesHistory]);
       printProfessionalTicket(orderData);
@@ -553,7 +532,7 @@ export default function GastronomicPOS() {
     .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
 
   const totalDebitSales = salesHistory
-    .filter((s) => (s.payment_method || '').toUpperCase().includes('DÉBITO') || (s.payment_method || '').toUpperCase().includes('DEBITO') || (s.payment_method || '').toUpperCase().includes('POINT'))
+    .filter((s) => (s.payment_method || '').toUpperCase().includes('DÉBITO') || (s.payment_method || '').toUpperCase().includes('DEBITO'))
     .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
 
   const totalTransferSales = salesHistory
@@ -700,8 +679,8 @@ export default function GastronomicPOS() {
                   >
                     <span style={{ fontSize: '14px', fontWeight: '600', color: '#f3f4f6' }}>{name}</span>
                     <span style={{ fontSize: '15px', fontWeight: 'bold', color: '#ef4444', marginTop: '12px' }}>
-                      ${price.toLocaleString('es-CL')}
-                    </span>
+                  ${price.toLocaleString('es-CL')}
+                </span>
                   </button>
                 );
               })}
@@ -750,7 +729,7 @@ export default function GastronomicPOS() {
                 )}
               </div>
 
-              {/* Formulario */}
+              {/* Form */}
               <form onSubmit={handleSubmitOrder} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
@@ -795,7 +774,6 @@ export default function GastronomicPOS() {
                     <option value="EFECTIVO">Efectivo</option>
                     <option value="DÉBITO">Débito</option>
                     <option value="TRANSFERENCIA">Transferencia</option>
-                    <option value="POINT SMART 2">💳 Point Smart 2</option>
                   </select>
                 </div>
 
@@ -846,6 +824,7 @@ export default function GastronomicPOS() {
       {activeTab === 'menu' && (
         <div style={{ padding: '24px', maxWidth: '1100px', margin: '0 auto' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '24px' }}>
+            {/* Formulario Agregar Producto */}
             <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626', height: 'fit-content' }}>
               <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 'bold', color: '#ef4444' }}>
                 ➕ Agregar Producto a la Carta
@@ -904,6 +883,7 @@ export default function GastronomicPOS() {
               </form>
             </div>
 
+            {/* Listado de Productos Existentes con Eliminar */}
             <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>
@@ -979,6 +959,7 @@ export default function GastronomicPOS() {
       {/* PESTAÑA: HISTORIAL & CIERRE DE CAJA */}
       {activeTab === 'caja' && (
         <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
+          {/* Tarjetas de Resumen */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
             <div style={{ backgroundColor: '#141414', padding: '18px', borderRadius: '10px', border: '1px solid #262626' }}>
               <p style={{ margin: 0, fontSize: '12px', color: '#a3a3a3' }}>Ventas Totales</p>
@@ -993,7 +974,7 @@ export default function GastronomicPOS() {
             </div>
 
             <div style={{ backgroundColor: '#141414', padding: '18px', borderRadius: '10px', border: '1px solid #262626' }}>
-              <p style={{ margin: 0, fontSize: '12px', color: '#a3a3a3' }}>Débito / Point</p>
+              <p style={{ margin: 0, fontSize: '12px', color: '#a3a3a3' }}>Débito / Tarjetas</p>
               <h3 style={{ margin: '6px 0 0 0', fontSize: '24px', fontWeight: '900', color: '#38bdf8' }}>${totalDebitSales.toLocaleString('es-CL')}</h3>
               <span style={{ fontSize: '11px', color: '#666' }}>Terminal / POS</span>
             </div>
@@ -1006,6 +987,7 @@ export default function GastronomicPOS() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px' }}>
+            {/* Tabla de Historial */}
             <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>Historial de Ventas del Turno</h3>
@@ -1060,7 +1042,9 @@ export default function GastronomicPOS() {
               </div>
             </div>
 
+            {/* Panel Lateral: Entrada de Dinero y Cierre */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Entrada de Dinero / Fondo */}
               <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626' }}>
                 <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold' }}>💵 Entrada de Caja / Fondo</h3>
                 <form onSubmit={handleAddCashEntry} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -1099,6 +1083,7 @@ export default function GastronomicPOS() {
                 )}
               </div>
 
+              {/* Botón Cierre de Caja */}
               <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626', textAlign: 'center' }}>
                 <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: 'bold' }}>🏁 Cierre de Caja</h3>
                 <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: '#a3a3a3' }}>
