@@ -3,7 +3,7 @@ import React from 'react';
 
 export const metadata = {
   title: 'Sakesu Sushi POS',
-  description: 'Sistema de Gestión y POS',
+  description: 'Sistema Gastronómico y Punto de Venta',
 };
 
 export default function RootLayout({
@@ -13,7 +13,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <body className="bg-neutral-950 text-slate-100 min-h-screen">
+      <body style={{ margin: 0, padding: 0, backgroundColor: '#0a0a0a' }}>
         {children}
       </body>
     </html>
