@@ -1,3 +1,11 @@
+import './globals.css';
+import React from 'react';
+
+export const metadata = {
+  title: 'Sakesu Sushi POS',
+  description: 'Sistema de Gestión y POS',
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -5,10 +13,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <head>
-        <title>Sakesu Sushi Delivery</title>
-      </head>
-      <body style={{ margin: 0, padding: 0 }}>{children}</body>
+      <body className="bg-neutral-950 text-slate-100 min-h-screen">
+        {children}
+      </body>
     </html>
   );
 }
