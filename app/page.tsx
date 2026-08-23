@@ -1,13 +1,3 @@
-Aquí tienes el código completo de tu archivo **`app/page.tsx`** actualizado.
-
-Se agregó la sección de **Cambios Rápidos (Relleno y Envoltura)** con recargo opcional, el botón para **crear nuevos cambios personalizados**, y la suma automática al total del producto y a la impresión de la comanda.
-
-### Instrucciones en GitHub:
-
-1. En la pantalla donde tienes abierto `page.tsx` en GitHub, borra todo el contenido.
-2. Pega este bloque completo.
-3. Haz clic en el botón verde **Commit changes...** (arriba a la derecha) para guardar.
-
 ```tsx
 'use client';
 
