@@ -30,7 +30,7 @@ interface OrderItem {
 }
 
 export default function GastronomicPOS() {
-  const [activeTab, setActiveTab] = useState<'pos' | 'caja' | 'menu'>('pos');
+  const [activeTab, setActiveTab] = useState<'pos' | 'cocina' | 'menu' | 'caja'>('pos');
   
   // POS States
   const [products, setProducts] = useState<Product[]>([]);
@@ -49,6 +49,10 @@ export default function GastronomicPOS() {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [lastOrder, setLastOrder] = useState<any>(null);
+
+  // Cocina & Cronómetros States
+  const [activeOrders, setActiveOrders] = useState<any[]>([]);
+  const [currentTime, setCurrentTime] = useState<number>(Date.now());
 
   // Caja & Historial States
   const [salesHistory, setSalesHistory] = useState<any[]>([]);
@@ -73,6 +77,14 @@ export default function GastronomicPOS() {
   const getProductCategory = (p: Product): string => {
     return p.category || p.categoria || 'Varios';
   };
+
+  // Timer en vivo para actualizar cronómetros cada segundo
+  useEffect(() => {
+    const timerInterval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timerInterval);
+  }, []);
 
   // Cargar Menú y Ventas
   const fetchMenu = async () => {
@@ -111,6 +123,8 @@ export default function GastronomicPOS() {
 
       if (!error && data) {
         setSalesHistory(data);
+        const pending = data.filter((o: any) => !o.status || o.status === 'pending');
+        setActiveOrders(pending);
       }
     } catch (err) {
       console.error('Error cargando ventas:', err);
@@ -122,7 +136,20 @@ export default function GastronomicPOS() {
     fetchSales();
   }, []);
 
-  // Agregar nuevo producto a Supabase
+  const handleMarkAsReady = async (orderId: any, orderNumber: any) => {
+    try {
+      if (supabaseUrl && supabaseAnonKey && orderId) {
+        await supabase.from('orders').update({ status: 'completed' }).eq('id', orderId);
+      }
+      setActiveOrders((prev) => prev.filter((o) => (o.id ? o.id !== orderId : o.order_number !== orderNumber)));
+      setSalesHistory((prev) =>
+        prev.map((o) => (o.id === orderId || o.order_number === orderNumber ? { ...o, status: 'completed' } : o))
+      );
+    } catch (err: any) {
+      alert('Error al actualizar comanda: ' + err.message);
+    }
+  };
+
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProdName || !newProdPrice) {
@@ -153,7 +180,6 @@ export default function GastronomicPOS() {
     }
   };
 
-  // Eliminar producto de Supabase
   const handleDeleteProduct = async (prodId: any, prodName: string) => {
     if (!confirm(`¿Estás seguro de que deseas eliminar "${prodName}" de la carta?`)) return;
 
@@ -365,7 +391,7 @@ export default function GastronomicPOS() {
       .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
 
     const totalDebitSales = salesHistory
-      .filter((s) => (s.payment_method || '').toUpperCase().includes('DÉBITO') || (s.payment_method || '').toUpperCase().includes('DEBITO'))
+      .filter((s) => (s.payment_method || '').toUpperCase().includes('DÉBITO') || (s.payment_method || '').toUpperCase().includes('DEBITO') || (s.payment_method || '').toUpperCase().includes('POINT'))
       .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
 
     const totalTransferSales = salesHistory
@@ -502,6 +528,7 @@ export default function GastronomicPOS() {
       total_amount: totalAmount,
       notes: orderNotes,
       status: 'pending',
+      created_at: new Date().toISOString(),
     };
 
     try {
@@ -511,9 +538,10 @@ export default function GastronomicPOS() {
 
       setLastOrder(orderData);
       setSalesHistory([orderData, ...salesHistory]);
+      setActiveOrders([orderData, ...activeOrders]);
       printProfessionalTicket(orderData);
 
-      setStatusMessage(`¡Comanda #${orderNumber} confirmada e impresa!`);
+      setStatusMessage(`¡Comanda #${orderNumber} enviada a cocina e impresa!`);
       setOrderItems([]);
       setCustomerName('');
       setCustomerPhone('');
@@ -532,7 +560,7 @@ export default function GastronomicPOS() {
     .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
 
   const totalDebitSales = salesHistory
-    .filter((s) => (s.payment_method || '').toUpperCase().includes('DÉBITO') || (s.payment_method || '').toUpperCase().includes('DEBITO'))
+    .filter((s) => (s.payment_method || '').toUpperCase().includes('DÉBITO') || (s.payment_method || '').toUpperCase().includes('DEBITO') || (s.payment_method || '').toUpperCase().includes('POINT'))
     .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
 
   const totalTransferSales = salesHistory
@@ -542,6 +570,31 @@ export default function GastronomicPOS() {
   const totalCashInEntries = cashEntries.reduce((acc, e) => acc + e.amount, 0);
   const grandTotalSales = totalCashSales + totalDebitSales + totalTransferSales;
   const totalCashInDrawer = totalCashInEntries + totalCashSales;
+
+  // Formato del cronómetro y cálculo de color
+  const getElapsedInfo = (createdAtStr: string) => {
+    const created = new Date(createdAtStr).getTime();
+    const diffSec = Math.max(0, Math.floor((currentTime - created) / 1000));
+    const mins = Math.floor(diffSec / 60);
+    const secs = diffSec % 60;
+    const formatted = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+    let color = '#22c55e'; // Verde (< 15 min)
+    let bg = '#052e16';
+    let border = '#15803d';
+
+    if (mins >= 25) {
+      color = '#ef4444'; // Rojo (> 25 min)
+      bg = '#450a0a';
+      border = '#dc2626';
+    } else if (mins >= 15) {
+      color = '#eab308'; // Amarillo (15 a 25 min)
+      bg = '#422006';
+      border = '#ca8a04';
+    }
+
+    return { formatted, mins, color, bg, border };
+  };
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a', color: '#ffffff', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
@@ -556,22 +609,49 @@ export default function GastronomicPOS() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
             type="button"
             onClick={() => setActiveTab('pos')}
             style={{
-              padding: '8px 18px',
+              padding: '8px 16px',
               borderRadius: '8px',
               border: 'none',
               backgroundColor: activeTab === 'pos' ? '#dc2626' : '#262626',
               color: '#fff',
               fontWeight: 'bold',
               cursor: 'pointer',
-              fontSize: '14px',
+              fontSize: '13px',
             }}
           >
             🍣 POS
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('cocina');
+              fetchSales();
+            }}
+            style={{
+              padding: '8px 16px',
+              borderRadius: '8px',
+              border: 'none',
+              backgroundColor: activeTab === 'cocina' ? '#dc2626' : '#262626',
+              color: '#fff',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              fontSize: '13px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            👨‍🍳 Monitor Cocina (KDS)
+            {activeOrders.length > 0 && (
+              <span style={{ backgroundColor: '#ef4444', color: '#fff', padding: '2px 6px', borderRadius: '10px', fontSize: '11px' }}>
+                {activeOrders.length}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -580,14 +660,14 @@ export default function GastronomicPOS() {
               fetchMenu();
             }}
             style={{
-              padding: '8px 18px',
+              padding: '8px 16px',
               borderRadius: '8px',
               border: 'none',
               backgroundColor: activeTab === 'menu' ? '#dc2626' : '#262626',
               color: '#fff',
               fontWeight: 'bold',
               cursor: 'pointer',
-              fontSize: '14px',
+              fontSize: '13px',
             }}
           >
             📋 Administrar Carta
@@ -599,14 +679,14 @@ export default function GastronomicPOS() {
               fetchSales();
             }}
             style={{
-              padding: '8px 18px',
+              padding: '8px 16px',
               borderRadius: '8px',
               border: 'none',
               backgroundColor: activeTab === 'caja' ? '#dc2626' : '#262626',
               color: '#fff',
               fontWeight: 'bold',
               cursor: 'pointer',
-              fontSize: '14px',
+              fontSize: '13px',
             }}
           >
             💰 Caja & Cierre
@@ -679,8 +759,8 @@ export default function GastronomicPOS() {
                   >
                     <span style={{ fontSize: '14px', fontWeight: '600', color: '#f3f4f6' }}>{name}</span>
                     <span style={{ fontSize: '15px', fontWeight: 'bold', color: '#ef4444', marginTop: '12px' }}>
-                  ${price.toLocaleString('es-CL')}
-                </span>
+                      ${price.toLocaleString('es-CL')}
+                    </span>
                   </button>
                 );
               })}
@@ -729,7 +809,7 @@ export default function GastronomicPOS() {
                 )}
               </div>
 
-              {/* Form */}
+              {/* Formulario */}
               <form onSubmit={handleSubmitOrder} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
@@ -820,11 +900,152 @@ export default function GastronomicPOS() {
         </div>
       )}
 
+      {/* PESTAÑA: MONITOR DE COCINA (KDS) */}
+      {activeTab === 'cocina' && (
+        <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold' }}>👨‍🍳 Pantalla de Cocina / KDS</h2>
+              <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#a3a3a3' }}>
+                Comandas en preparación con cronómetros en vivo.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchSales}
+              style={{ padding: '8px 16px', backgroundColor: '#262626', border: '1px solid #404040', color: '#fff', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
+            >
+              🔄 Actualizar Pedidos
+            </button>
+          </div>
+
+          {activeOrders.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', backgroundColor: '#141414', borderRadius: '12px', border: '1px solid #262626' }}>
+              <h3 style={{ fontSize: '20px', color: '#22c55e', margin: '0 0 8px 0' }}>✅ ¡Cocina al día!</h3>
+              <p style={{ color: '#a3a3a3', margin: 0 }}>No hay pedidos pendientes en este momento.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+              {activeOrders.map((order) => {
+                const elapsed = getElapsedInfo(order.created_at || new Date().toISOString());
+                const items = order.items || [];
+                return (
+                  <div
+                    key={order.id || order.order_number}
+                    style={{
+                      backgroundColor: '#141414',
+                      border: `2px solid ${elapsed.border}`,
+                      borderRadius: '12px',
+                      padding: '16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                    }}
+                  >
+                    <div>
+                      {/* Cabecera de la Comanda */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #262626', paddingBottom: '10px', marginBottom: '12px' }}>
+                        <div>
+                          <span style={{ fontSize: '22px', fontWeight: '900', color: '#fff' }}>
+                            #{order.order_number}
+                          </span>
+                          <div style={{ fontSize: '12px', color: '#ef4444', fontWeight: 'bold', marginTop: '2px' }}>
+                            {order.order_type === 'DELIVERY' ? '🛵 DELIVERY' : '🛍️ RETIRO'}
+                          </div>
+                        </div>
+
+                        {/* Cronómetro en vivo */}
+                        <div
+                          style={{
+                            backgroundColor: elapsed.bg,
+                            color: elapsed.color,
+                            border: `1px solid ${elapsed.border}`,
+                            padding: '6px 12px',
+                            borderRadius: '8px',
+                            fontSize: '18px',
+                            fontWeight: '900',
+                            fontFamily: 'monospace',
+                            letterSpacing: '1px',
+                          }}
+                        >
+                          ⏱️ {elapsed.formatted}
+                        </div>
+                      </div>
+
+                      {/* Info del Cliente */}
+                      <div style={{ fontSize: '13px', color: '#ccc', marginBottom: '12px', lineHeight: 1.4 }}>
+                        <div style={{ fontWeight: 'bold', color: '#fff' }}>👤 {order.customer_name || 'Cliente General'}</div>
+                        {order.delivery_address && (
+                          <div style={{ color: '#38bdf8', marginTop: '2px' }}>📍 {order.delivery_address}</div>
+                        )}
+                      </div>
+
+                      {/* Lista de Rolls / Productos */}
+                      <div style={{ backgroundColor: '#0a0a0a', padding: '10px', borderRadius: '8px', border: '1px solid #262626', marginBottom: '12px' }}>
+                        <div style={{ fontSize: '11px', color: '#a3a3a3', fontWeight: 'bold', marginBottom: '6px' }}>PRODUCTOS:</div>
+                        {items.map((it: any, idx: number) => (
+                          <div key={idx} style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff', marginBottom: '6px' }}>
+                            <span style={{ color: '#ef4444', marginRight: '6px' }}>[{it.quantity}x]</span>
+                            {it.product_name}
+                          </div>
+                        ))}
+
+                        {order.notes && (
+                          <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed #333', fontSize: '13px', color: '#eab308', fontWeight: 'bold' }}>
+                            📝 NOTAS: {order.notes}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Botones de Acción */}
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={() => printProfessionalTicket(order)}
+                        style={{
+                          padding: '10px 12px',
+                          backgroundColor: '#262626',
+                          border: '1px solid #404040',
+                          color: '#fff',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontWeight: 'bold',
+                        }}
+                      >
+                        🖨️
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMarkAsReady(order.id, order.order_number)}
+                        style={{
+                          flex: 1,
+                          padding: '10px',
+                          backgroundColor: '#16a34a',
+                          border: 'none',
+                          borderRadius: '8px',
+                          color: '#fff',
+                          fontWeight: '900',
+                          fontSize: '14px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ✅ Marcar Listo / Despachar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* PESTAÑA: ADMINISTRAR CARTA */}
       {activeTab === 'menu' && (
         <div style={{ padding: '24px', maxWidth: '1100px', margin: '0 auto' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '24px' }}>
-            {/* Formulario Agregar Producto */}
             <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626', height: 'fit-content' }}>
               <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 'bold', color: '#ef4444' }}>
                 ➕ Agregar Producto a la Carta
@@ -883,7 +1104,6 @@ export default function GastronomicPOS() {
               </form>
             </div>
 
-            {/* Listado de Productos Existentes con Eliminar */}
             <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>
@@ -959,7 +1179,6 @@ export default function GastronomicPOS() {
       {/* PESTAÑA: HISTORIAL & CIERRE DE CAJA */}
       {activeTab === 'caja' && (
         <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-          {/* Tarjetas de Resumen */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
             <div style={{ backgroundColor: '#141414', padding: '18px', borderRadius: '10px', border: '1px solid #262626' }}>
               <p style={{ margin: 0, fontSize: '12px', color: '#a3a3a3' }}>Ventas Totales</p>
@@ -987,7 +1206,6 @@ export default function GastronomicPOS() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px' }}>
-            {/* Tabla de Historial */}
             <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>Historial de Ventas del Turno</h3>
@@ -1042,9 +1260,7 @@ export default function GastronomicPOS() {
               </div>
             </div>
 
-            {/* Panel Lateral: Entrada de Dinero y Cierre */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              {/* Entrada de Dinero / Fondo */}
               <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626' }}>
                 <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold' }}>💵 Entrada de Caja / Fondo</h3>
                 <form onSubmit={handleAddCashEntry} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -1083,7 +1299,6 @@ export default function GastronomicPOS() {
                 )}
               </div>
 
-              {/* Botón Cierre de Caja */}
               <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626', textAlign: 'center' }}>
                 <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: 'bold' }}>🏁 Cierre de Caja</h3>
                 <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: '#a3a3a3' }}>
