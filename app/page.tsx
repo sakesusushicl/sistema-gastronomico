@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -56,7 +56,7 @@ export default function GastronomicPOS() {
           const cats = Array.from(new Set(data.map((p: any) => p.category).filter(Boolean))) as string[];
           setCategories(['Todos', ...cats]);
         } else {
-          // Respaldo de productos
+          // Menú base de respaldo si la tabla estuviera vacía
           const fallback: Product[] = [
             { id: 1, name: 'Promo 30 Piezas', price: 14990, category: 'Promociones' },
             { id: 2, name: 'Promo 40 Piezas', price: 18990, category: 'Promociones' },
@@ -215,11 +215,12 @@ export default function GastronomicPOS() {
           />
         </div>
 
-        {/* Categorías */}
+        {/* Barra de Categorías */}
         <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '12px', marginBottom: '16px' }}>
           {categories.map((cat) => (
             <button
               key={cat}
+              type="button"
               onClick={() => setSelectedCategory(cat)}
               style={{
                 padding: '6px 14px',
@@ -245,6 +246,7 @@ export default function GastronomicPOS() {
             return (
               <button
                 key={product.id || idx}
+                type="button"
                 onClick={() => addToOrder(product)}
                 style={{
                   backgroundColor: '#141414',
@@ -257,7 +259,6 @@ export default function GastronomicPOS() {
                   flexDirection: 'column',
                   justifyContent: 'space-between',
                   minHeight: '85px',
-                  transition: 'border 0.2s',
                 }}
               >
                 <span style={{ fontSize: '14px', fontWeight: '600', color: '#f3f4f6' }}>{product.name}</span>
