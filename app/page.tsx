@@ -30,7 +30,7 @@ interface OrderItem {
 }
 
 export default function GastronomicPOS() {
-  const [activeTab, setActiveTab] = useState<'pos' | 'caja'>('pos');
+  const [activeTab, setActiveTab] = useState<'pos' | 'caja' | 'menu'>('pos');
   
   // POS States
   const [products, setProducts] = useState<Product[]>([]);
@@ -56,6 +56,12 @@ export default function GastronomicPOS() {
   const [entryAmount, setEntryAmount] = useState<string>('');
   const [entryReason, setEntryReason] = useState<string>('Fondo Inicial');
 
+  // Administrador de Carta States
+  const [newProdName, setNewProdName] = useState<string>('');
+  const [newProdPrice, setNewProdPrice] = useState<string>('');
+  const [newProdCategory, setNewProdCategory] = useState<string>('Rolls');
+  const [isSavingProduct, setIsSavingProduct] = useState<boolean>(false);
+
   const getProductName = (p: Product): string => {
     return p.name || p.nombre || p.title || p.product_name || 'Producto';
   };
@@ -72,7 +78,7 @@ export default function GastronomicPOS() {
   const fetchMenu = async () => {
     if (!supabaseUrl || !supabaseAnonKey) return;
     try {
-      const { data, error } = await supabase.from('products').select('*');
+      const { data, error } = await supabase.from('products').select('*').order('name', { ascending: true });
       if (!error && data && data.length > 0) {
         setProducts(data);
         const rawCats = data.map((p: any) => p.category || p.categoria).filter(Boolean);
@@ -115,6 +121,54 @@ export default function GastronomicPOS() {
     fetchMenu();
     fetchSales();
   }, []);
+
+  // Agregar nuevo producto a Supabase
+  const handleCreateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProdName || !newProdPrice) {
+      alert('Por favor ingresa el nombre y el precio.');
+      return;
+    }
+
+    setIsSavingProduct(true);
+    const newProd = {
+      name: newProdName.trim(),
+      price: Number(newProdPrice),
+      category: newProdCategory.trim() || 'Varios',
+    };
+
+    try {
+      if (supabaseUrl && supabaseAnonKey) {
+        const { error } = await supabase.from('products').insert([newProd]);
+        if (error) throw error;
+      }
+      alert('¡Producto agregado con éxito a la carta!');
+      setNewProdName('');
+      setNewProdPrice('');
+      fetchMenu();
+    } catch (err: any) {
+      alert('Error al guardar el producto: ' + err.message);
+    } finally {
+      setIsSavingProduct(false);
+    }
+  };
+
+  // Eliminar producto de Supabase
+  const handleDeleteProduct = async (prodId: any, prodName: string) => {
+    if (!confirm(`¿Estás seguro de que deseas eliminar "${prodName}" de la carta?`)) return;
+
+    try {
+      if (supabaseUrl && supabaseAnonKey && prodId) {
+        const { error } = await supabase.from('products').delete().eq('id', prodId);
+        if (error) throw error;
+      }
+      setProducts(products.filter((p) => p.id !== prodId));
+      alert(`"${prodName}" eliminado correctamente.`);
+      fetchMenu();
+    } catch (err: any) {
+      alert('Error al eliminar producto: ' + err.message);
+    }
+  };
 
   const addToOrder = (product: Product) => {
     const name = getProductName(product);
@@ -517,7 +571,26 @@ export default function GastronomicPOS() {
               fontSize: '14px',
             }}
           >
-            🍣 Punto de Venta (POS)
+            🍣 POS
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('menu');
+              fetchMenu();
+            }}
+            style={{
+              padding: '8px 18px',
+              borderRadius: '8px',
+              border: 'none',
+              backgroundColor: activeTab === 'menu' ? '#dc2626' : '#262626',
+              color: '#fff',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              fontSize: '14px',
+            }}
+          >
+            📋 Administrar Carta
           </button>
           <button
             type="button"
@@ -536,7 +609,7 @@ export default function GastronomicPOS() {
               fontSize: '14px',
             }}
           >
-            💰 Caja & Cierre Diarios
+            💰 Caja & Cierre
           </button>
         </div>
       </header>
@@ -606,8 +679,8 @@ export default function GastronomicPOS() {
                   >
                     <span style={{ fontSize: '14px', fontWeight: '600', color: '#f3f4f6' }}>{name}</span>
                     <span style={{ fontSize: '15px', fontWeight: 'bold', color: '#ef4444', marginTop: '12px' }}>
-                      ${price.toLocaleString('es-CL')}
-                    </span>
+                  ${price.toLocaleString('es-CL')}
+                </span>
                   </button>
                 );
               })}
@@ -742,6 +815,142 @@ export default function GastronomicPOS() {
                   {isSubmitting ? 'Guardando...' : '🖨️ Confirmar e Imprimir'}
                 </button>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PESTAÑA: ADMINISTRAR CARTA */}
+      {activeTab === 'menu' && (
+        <div style={{ padding: '24px', maxWidth: '1100px', margin: '0 auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '24px' }}>
+            {/* Formulario Agregar Producto */}
+            <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626', height: 'fit-content' }}>
+              <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 'bold', color: '#ef4444' }}>
+                ➕ Agregar Producto a la Carta
+              </h3>
+              <form onSubmit={handleCreateProduct} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', color: '#a3a3a3' }}>Nombre del Producto / Roll</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Promo 50 Piezas Tempura"
+                    value={newProdName}
+                    onChange={(e) => setNewProdName(e.target.value)}
+                    style={{ width: '100%', padding: '8px', marginTop: '4px', backgroundColor: '#0a0a0a', border: '1px solid #262626', borderRadius: '6px', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '12px', color: '#a3a3a3' }}>Precio ($)</label>
+                  <input
+                    type="number"
+                    placeholder="Ej: 21990"
+                    value={newProdPrice}
+                    onChange={(e) => setNewProdPrice(e.target.value)}
+                    style={{ width: '100%', padding: '8px', marginTop: '4px', backgroundColor: '#0a0a0a', border: '1px solid #262626', borderRadius: '6px', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '12px', color: '#a3a3a3' }}>Categoría</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Rolls, Promociones, Handrolls, Bebidas"
+                    value={newProdCategory}
+                    onChange={(e) => setNewProdCategory(e.target.value)}
+                    style={{ width: '100%', padding: '8px', marginTop: '4px', backgroundColor: '#0a0a0a', border: '1px solid #262626', borderRadius: '6px', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSavingProduct}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    backgroundColor: isSavingProduct ? '#404040' : '#dc2626',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: 'bold',
+                    cursor: isSavingProduct ? 'not-allowed' : 'pointer',
+                    marginTop: '8px',
+                  }}
+                >
+                  {isSavingProduct ? 'Guardando...' : 'Guardar Producto'}
+                </button>
+              </form>
+            </div>
+
+            {/* Listado de Productos Existentes con Eliminar */}
+            <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>
+                  Productos Actuales ({products.length})
+                </h3>
+                <button
+                  onClick={fetchMenu}
+                  style={{ padding: '6px 12px', backgroundColor: '#262626', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '12px', cursor: 'pointer' }}
+                >
+                  🔄 Refrescar
+                </button>
+              </div>
+
+              <div style={{ overflowX: 'auto', maxHeight: '500px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #262626', color: '#a3a3a3' }}>
+                      <th style={{ padding: '10px 8px' }}>Producto</th>
+                      <th style={{ padding: '10px 8px' }}>Categoría</th>
+                      <th style={{ padding: '10px 8px' }}>Precio</th>
+                      <th style={{ padding: '10px 8px', textAlign: 'center' }}>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {products.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: 'center', padding: '30px', color: '#666' }}>
+                          No hay productos en la carta.
+                        </td>
+                      </tr>
+                    ) : (
+                      products.map((p, idx) => {
+                        const name = getProductName(p);
+                        const price = getProductPrice(p);
+                        const category = getProductCategory(p);
+                        return (
+                          <tr key={p.id || idx} style={{ borderBottom: '1px solid #1f1f1f' }}>
+                            <td style={{ padding: '10px 8px', fontWeight: 'bold' }}>{name}</td>
+                            <td style={{ padding: '10px 8px', color: '#a3a3a3' }}>{category}</td>
+                            <td style={{ padding: '10px 8px', color: '#ef4444', fontWeight: 'bold' }}>
+                              ${price.toLocaleString('es-CL')}
+                            </td>
+                            <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteProduct(p.id, name)}
+                                style={{
+                                  padding: '5px 10px',
+                                  backgroundColor: '#3b1111',
+                                  color: '#f87171',
+                                  border: '1px solid #ef4444',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  fontSize: '12px',
+                                  fontWeight: 'bold',
+                                }}
+                              >
+                                🗑️ Eliminar
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
