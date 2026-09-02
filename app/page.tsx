@@ -1515,7 +1515,7 @@ export default function GastronomicPOS() {
       {selectedHistoryOrder && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '16px' }}>
           <div style={{ backgroundColor: '#171717', border: '1px solid #333', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333', pb: '12px', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333', paddingBottom: '12px', marginBottom: '14px' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#ef4444' }}>
                   Orden #{selectedHistoryOrder.order_number}
