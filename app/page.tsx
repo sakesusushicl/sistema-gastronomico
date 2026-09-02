@@ -99,7 +99,23 @@ export default function GastronomicPOS() {
     return () => clearInterval(timerInterval);
   }, []);
 
-  // Cargar Menú y Ventas
+  // Cargar pedidos locales de respaldo al abrir
+  useEffect(() => {
+    try {
+      const localActive = localStorage.getItem('sakesu_active_orders');
+      if (localActive) {
+        setActiveOrders(JSON.parse(localActive));
+      }
+      const localHistory = localStorage.getItem('sakesu_sales_history');
+      if (localHistory) {
+        setSalesHistory(JSON.parse(localHistory));
+      }
+    } catch (e) {
+      console.error('Error cargando storage local:', e);
+    }
+  }, []);
+
+  // Cargar Menú
   const fetchMenu = async () => {
     if (!supabaseUrl || !supabaseAnonKey) return;
     try {
@@ -126,6 +142,7 @@ export default function GastronomicPOS() {
     }
   };
 
+  // Cargar Ventas y filtrar pendientes para Cocina
   const fetchSales = async () => {
     if (!supabaseUrl || !supabaseAnonKey) return;
     try {
@@ -136,8 +153,16 @@ export default function GastronomicPOS() {
 
       if (!error && data) {
         setSalesHistory(data);
-        const pending = data.filter((o: any) => !o.status || o.status === 'pending');
+        localStorage.setItem('sakesu_sales_history', JSON.stringify(data));
+
+        // Filtro robusto: Se queda todo lo que NO esté terminado
+        const pending = data.filter((o: any) => {
+          const st = String(o.status || 'pending').toLowerCase();
+          return st !== 'completed' && st !== 'listo' && st !== 'entregado';
+        });
+
         setActiveOrders(pending);
+        localStorage.setItem('sakesu_active_orders', JSON.stringify(pending));
       }
     } catch (err) {
       console.error('Error cargando ventas:', err);
@@ -149,15 +174,29 @@ export default function GastronomicPOS() {
     fetchSales();
   }, []);
 
+  // Marcar orden como lista (Sale de cocina y pasa a completada)
   const handleMarkAsReady = async (orderId: any, orderNumber: any) => {
     try {
       if (supabaseUrl && supabaseAnonKey && orderId) {
         await supabase.from('orders').update({ status: 'completed' }).eq('id', orderId);
       }
-      setActiveOrders((prev) => prev.filter((o) => (o.id ? o.id !== orderId : o.order_number !== orderNumber)));
-      setSalesHistory((prev) =>
-        prev.map((o) => (o.id === orderId || o.order_number === orderNumber ? { ...o, status: 'completed' } : o))
+
+      // Remover de pedidos activos de Cocina
+      const updatedActive = activeOrders.filter((o) => {
+        if (orderId && o.id) return o.id !== orderId;
+        return o.order_number !== orderNumber;
+      });
+      setActiveOrders(updatedActive);
+      localStorage.setItem('sakesu_active_orders', JSON.stringify(updatedActive));
+
+      // Actualizar en el historial
+      const updatedHistory = salesHistory.map((o) =>
+        (o.id && o.id === orderId) || o.order_number === orderNumber
+          ? { ...o, status: 'completed' }
+          : o
       );
+      setSalesHistory(updatedHistory);
+      localStorage.setItem('sakesu_sales_history', JSON.stringify(updatedHistory));
     } catch (err: any) {
       alert('Error al actualizar comanda: ' + err.message);
     }
@@ -582,8 +621,16 @@ export default function GastronomicPOS() {
       }
 
       setLastOrder(orderData);
-      setSalesHistory([orderData, ...salesHistory]);
-      setActiveOrders([orderData, ...activeOrders]);
+
+      // Agregar inmediatamente a pantalla de cocina y guardar en memoria
+      const newActive = [orderData, ...activeOrders];
+      setActiveOrders(newActive);
+      localStorage.setItem('sakesu_active_orders', JSON.stringify(newActive));
+
+      const newHistory = [orderData, ...salesHistory];
+      setSalesHistory(newHistory);
+      localStorage.setItem('sakesu_sales_history', JSON.stringify(newHistory));
+
       printProfessionalTicket(orderData);
 
       setStatusMessage(`¡Comanda #${orderNumber} enviada a cocina e impresa!`);
