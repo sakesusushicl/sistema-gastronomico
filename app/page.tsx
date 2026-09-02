@@ -21,12 +21,18 @@ interface Product {
   categoria?: string;
 }
 
+interface ItemModification {
+  tipo: 'envoltura' | 'relleno' | 'extra';
+  detalle: string;
+}
+
 interface OrderItem {
   product_name: string;
   quantity: number;
   unit_price: number;
   subtotal: number;
   special_notes?: string;
+  modificaciones?: ItemModification[];
 }
 
 export default function GastronomicPOS() {
@@ -50,12 +56,19 @@ export default function GastronomicPOS() {
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [lastOrder, setLastOrder] = useState<any>(null);
 
+  // Modal para Cambios de Relleno/Envoltura
+  const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
+  const [modalEnvoltura, setModalEnvoltura] = useState<string>('Original');
+  const [modalRelleno, setModalRelleno] = useState<string>('Original');
+  const [modalItemNote, setModalItemNote] = useState<string>('');
+
   // Cocina & Cronómetros States
   const [activeOrders, setActiveOrders] = useState<any[]>([]);
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
 
   // Caja & Historial States
   const [salesHistory, setSalesHistory] = useState<any[]>([]);
+  const [selectedHistoryOrder, setSelectedHistoryOrder] = useState<any | null>(null);
   const [cashEntries, setCashEntries] = useState<{ amount: number; reason: string; time: string }[]>([]);
   const [entryAmount, setEntryAmount] = useState<string>('');
   const [entryReason, setEntryReason] = useState<string>('Fondo Inicial');
@@ -200,28 +213,49 @@ export default function GastronomicPOS() {
     const name = getProductName(product);
     const price = getProductPrice(product);
 
+    setOrderItems((prev) => [
+      ...prev,
+      {
+        product_name: name,
+        quantity: 1,
+        unit_price: price,
+        subtotal: price,
+        modificaciones: [],
+        special_notes: '',
+      },
+    ]);
+  };
+
+  const openCustomizationModal = (index: number) => {
+    setEditingItemIndex(index);
+    const item = orderItems[index];
+    const env = item.modificaciones?.find((m) => m.tipo === 'envoltura')?.detalle || 'Original';
+    const rel = item.modificaciones?.find((m) => m.tipo === 'relleno')?.detalle || 'Original';
+    setModalEnvoltura(env);
+    setModalRelleno(rel);
+    setModalItemNote(item.special_notes || '');
+  };
+
+  const saveCustomization = () => {
+    if (editingItemIndex === null) return;
     setOrderItems((prev) => {
-      const index = prev.findIndex((i) => i.product_name === name);
-      if (index > -1) {
-        const updated = [...prev];
-        const newQty = updated[index].quantity + 1;
-        updated[index] = {
-          ...updated[index],
-          quantity: newQty,
-          subtotal: newQty * price,
-        };
-        return updated;
+      const updated = [...prev];
+      const mods: ItemModification[] = [];
+      if (modalEnvoltura !== 'Original') {
+        mods.push({ tipo: 'envoltura', detalle: modalEnvoltura });
       }
-      return [
-        ...prev,
-        {
-          product_name: name,
-          quantity: 1,
-          unit_price: price,
-          subtotal: price,
-        },
-      ];
+      if (modalRelleno !== 'Original') {
+        mods.push({ tipo: 'relleno', detalle: modalRelleno });
+      }
+
+      updated[editingItemIndex] = {
+        ...updated[editingItemIndex],
+        modificaciones: mods,
+        special_notes: modalItemNote.trim(),
+      };
+      return updated;
     });
+    setEditingItemIndex(null);
   };
 
   const updateQuantity = (index: number, delta: number) => {
@@ -276,20 +310,25 @@ export default function GastronomicPOS() {
 
     const items = order.items || [];
     const itemsRows = items
-      .map(
-        (it: any) => `
-        <div style="margin-bottom: 10px;">
+      .map((it: any) => {
+        const modsList = (it.modificaciones || [])
+          .map((m: any) => `<div style="font-size: 14px; font-weight: 900; color: #000; padding-left: 12px; margin-top: 2px;">⚠️ CAMBIO ${m.tipo.toUpperCase()}: ${m.detalle.toUpperCase()}</div>`)
+          .join('');
+
+        const itemNote = it.special_notes
+          ? `<div style="font-size: 13px; font-weight: 900; padding-left: 12px; margin-top: 2px;">↳ DETALLE: ${it.special_notes.toUpperCase()}</div>`
+          : '';
+
+        return `
+        <div style="margin-bottom: 12px; border-bottom: 1px dashed #444; padding-bottom: 6px;">
           <div style="font-size: 18px; font-weight: 900; letter-spacing: -0.2px;">
             [ ${it.quantity} ] ${(it.product_name || '').toUpperCase()}
           </div>
-          ${
-            order.notes
-              ? `<div style="font-size: 15px; font-weight: 900; margin-top: 3px; padding-left: 10px;">>> NOTA: ${order.notes.toUpperCase()}</div>`
-              : ''
-          }
+          ${modsList}
+          ${itemNote}
         </div>
-      `
-      )
+      `;
+      })
       .join('');
 
     w.document.write(`
@@ -350,6 +389,12 @@ export default function GastronomicPOS() {
         <div class="divider-solid"></div>
         <div style="font-size: 15px; font-weight: 900; margin-bottom: 8px;">DETALLE DE PRODUCTOS:</div>
         <div>${itemsRows}</div>
+
+        ${
+          order.notes
+            ? `<div style="font-size: 14px; font-weight: 900; margin: 8px 0; border: 2px solid #000; padding: 4px 6px;">>> NOTA GENERAL: ${order.notes.toUpperCase()}</div>`
+            : ''
+        }
 
         <div class="divider-solid"></div>
         <div class="row" style="font-size: 22px; font-weight: 900; padding: 4px 0;">
@@ -689,7 +734,7 @@ export default function GastronomicPOS() {
               fontSize: '13px',
             }}
           >
-            💰 Caja & Cierre
+            💰 Historial & Cierre de Caja
           </button>
         </div>
       </header>
@@ -768,7 +813,7 @@ export default function GastronomicPOS() {
           </div>
 
           {/* Panel Comanda */}
-          <div style={{ width: '400px', backgroundColor: '#121212', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div style={{ width: '420px', backgroundColor: '#121212', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #262626', paddingBottom: '8px', marginBottom: '16px' }}>
                 <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#ef4444' }}>
@@ -785,24 +830,47 @@ export default function GastronomicPOS() {
                 )}
               </div>
 
-              {/* Items */}
-              <div style={{ maxHeight: '230px', overflowY: 'auto', marginBottom: '16px' }}>
+              {/* Items con selector de cambios */}
+              <div style={{ maxHeight: '250px', overflowY: 'auto', marginBottom: '16px' }}>
                 {orderItems.length === 0 ? (
                   <p style={{ fontSize: '13px', color: '#666666', textAlign: 'center', margin: '30px 0' }}>
                     Selecciona productos del menú
                   </p>
                 ) : (
                   orderItems.map((item, idx) => (
-                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0a0a0a', padding: '8px 12px', borderRadius: '8px', marginBottom: '8px', border: '1px solid #262626' }}>
-                      <div style={{ flex: 1 }}>
-                        <p style={{ margin: 0, fontSize: '13px', fontWeight: '600' }}>{item.product_name}</p>
-                        <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#ef4444' }}>${item.subtotal.toLocaleString('es-CL')}</p>
+                    <div key={idx} style={{ backgroundColor: '#0a0a0a', padding: '10px 12px', borderRadius: '8px', marginBottom: '8px', border: '1px solid #262626' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ margin: 0, fontSize: '13px', fontWeight: '700' }}>{item.product_name}</p>
+                          <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#ef4444' }}>${item.subtotal.toLocaleString('es-CL')}</p>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <button type="button" onClick={() => updateQuantity(idx, -1)} style={{ width: '26px', height: '26px', backgroundColor: '#262626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>-</button>
+                          <span style={{ fontSize: '13px', fontWeight: 'bold', minWidth: '18px', textAlign: 'center' }}>{item.quantity}</span>
+                          <button type="button" onClick={() => updateQuantity(idx, 1)} style={{ width: '26px', height: '26px', backgroundColor: '#262626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>+</button>
+                          <button type="button" onClick={() => removeItem(idx)} style={{ width: '26px', height: '26px', backgroundColor: '#3b1111', color: '#f87171', border: 'none', borderRadius: '4px', cursor: 'pointer', marginLeft: '4px', fontSize: '11px' }}>🗑️</button>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <button type="button" onClick={() => updateQuantity(idx, -1)} style={{ width: '26px', height: '26px', backgroundColor: '#262626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>-</button>
-                        <span style={{ fontSize: '13px', fontWeight: 'bold', minWidth: '18px', textAlign: 'center' }}>{item.quantity}</span>
-                        <button type="button" onClick={() => updateQuantity(idx, 1)} style={{ width: '26px', height: '26px', backgroundColor: '#262626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>+</button>
-                        <button type="button" onClick={() => removeItem(idx)} style={{ width: '26px', height: '26px', backgroundColor: '#3b1111', color: '#f87171', border: 'none', borderRadius: '4px', cursor: 'pointer', marginLeft: '4px', fontSize: '11px' }}>🗑️</button>
+
+                      {/* Botón y visualización de modificaciones */}
+                      <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed #262626', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: '11px', color: '#eab308' }}>
+                          {item.modificaciones && item.modificaciones.length > 0 ? (
+                            item.modificaciones.map((m, mIdx) => (
+                              <div key={mIdx}>⚠️ {m.tipo}: <strong>{m.detalle}</strong></div>
+                            ))
+                          ) : (
+                            <span style={{ color: '#737373' }}>Sin cambios</span>
+                          )}
+                          {item.special_notes && <div style={{ color: '#38bdf8' }}>↳ {item.special_notes}</div>}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openCustomizationModal(idx)}
+                          style={{ padding: '3px 8px', backgroundColor: '#262626', border: '1px solid #404040', color: '#fff', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}
+                        >
+                          ⚙️ Personalizar
+                        </button>
                       </div>
                     </div>
                   ))
@@ -859,7 +927,7 @@ export default function GastronomicPOS() {
 
                 <input
                   type="text"
-                  placeholder="Notas / Salsas (ej: SOYA, SOYA)"
+                  placeholder="Notas generales comanda (ej: Soya, Acevichada)"
                   value={orderNotes}
                   onChange={(e) => setOrderNotes(e.target.value)}
                   style={{ width: '100%', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #262626', borderRadius: '6px', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
@@ -900,6 +968,87 @@ export default function GastronomicPOS() {
         </div>
       )}
 
+      {/* MODAL PERSONALIZADOR DE RELLENOS Y ENVOLTURAS */}
+      {editingItemIndex !== null && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '16px' }}>
+          <div style={{ backgroundColor: '#171717', border: '1px solid #333', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '420px' }}>
+            <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: 'bold', color: '#ef4444' }}>
+              Personalizar Roll / Producto
+            </h3>
+            <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#a3a3a3' }}>
+              {orderItems[editingItemIndex]?.product_name}
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#d4d4d4' }}>Cambio de Envoltura:</label>
+                <select
+                  value={modalEnvoltura}
+                  onChange={(e) => setModalEnvoltura(e.target.value)}
+                  style={{ width: '100%', padding: '10px', marginTop: '4px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '13px' }}
+                >
+                  <option value="Original">Sin cambio (Original)</option>
+                  <option value="Palta">Envuelto en Palta</option>
+                  <option value="Panko">Envuelto en Panko / Frito</option>
+                  <option value="Salmón">Envuelto en Salmón</option>
+                  <option value="Ciboulette">Ciboulette</option>
+                  <option value="Sésamo">Sésamo</option>
+                  <option value="Nori">Nori exterior (Hosomaki)</option>
+                  <option value="Queso Crema">Queso Crema exterior</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#d4d4d4' }}>Cambio de Relleno:</label>
+                <select
+                  value={modalRelleno}
+                  onChange={(e) => setModalRelleno(e.target.value)}
+                  style={{ width: '100%', padding: '10px', marginTop: '4px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '13px' }}
+                >
+                  <option value="Original">Sin cambio (Original)</option>
+                  <option value="Pollo Teriyaki">Pollo Teriyaki</option>
+                  <option value="Pollo Furay / Panko">Pollo Furay (Panko)</option>
+                  <option value="Camarón">Camarón</option>
+                  <option value="Camarón Furay">Camarón Furay</option>
+                  <option value="Salmón">Salmón</option>
+                  <option value="Kanikama">Kanikama</option>
+                  <option value="Champiñón / Vegetariano">Champiñón / Veggie</option>
+                  <option value="Solo Queso y Palta">Solo Queso y Palta</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#d4d4d4' }}>Nota o instrucción de preparación:</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Sin cebollín, poco queso, etc."
+                  value={modalItemNote}
+                  onChange={(e) => setModalItemNote(e.target.value)}
+                  style={{ width: '100%', padding: '10px', marginTop: '4px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setEditingItemIndex(null)}
+                  style={{ flex: 1, padding: '10px', backgroundColor: '#262626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={saveCustomization}
+                  style={{ flex: 1, padding: '10px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                >
+                  Guardar Cambios
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* PESTAÑA: MONITOR DE COCINA (KDS) */}
       {activeTab === 'cocina' && (
         <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
@@ -907,7 +1056,7 @@ export default function GastronomicPOS() {
             <div>
               <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold' }}>👨‍🍳 Pantalla de Cocina / KDS</h2>
               <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#a3a3a3' }}>
-                Comandas en preparación con cronómetros en vivo.
+                Comandas en preparación con cronómetros en tiempo real y alertas de cambio.
               </p>
             </div>
             <button
@@ -981,19 +1130,36 @@ export default function GastronomicPOS() {
                         )}
                       </div>
 
-                      {/* Lista de Rolls / Productos */}
+                      {/* Lista de Rolls / Productos con modificaciones visibles */}
                       <div style={{ backgroundColor: '#0a0a0a', padding: '10px', borderRadius: '8px', border: '1px solid #262626', marginBottom: '12px' }}>
-                        <div style={{ fontSize: '11px', color: '#a3a3a3', fontWeight: 'bold', marginBottom: '6px' }}>PRODUCTOS:</div>
+                        <div style={{ fontSize: '11px', color: '#a3a3a3', fontWeight: 'bold', marginBottom: '6px' }}>PRODUCTOS A PREPARAR:</div>
                         {items.map((it: any, idx: number) => (
-                          <div key={idx} style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff', marginBottom: '6px' }}>
-                            <span style={{ color: '#ef4444', marginRight: '6px' }}>[{it.quantity}x]</span>
-                            {it.product_name}
+                          <div key={idx} style={{ marginBottom: '10px', borderBottom: '1px dashed #262626', paddingBottom: '6px' }}>
+                            <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff' }}>
+                              <span style={{ color: '#ef4444', marginRight: '6px' }}>[{it.quantity}x]</span>
+                              {it.product_name}
+                            </div>
+                            {/* Cambios de relleno o envoltura destacados para cocina */}
+                            {it.modificaciones && it.modificaciones.length > 0 && (
+                              <div style={{ marginTop: '4px', paddingLeft: '8px', borderLeft: '2px solid #ef4444' }}>
+                                {it.modificaciones.map((m: any, mIdx: number) => (
+                                  <div key={mIdx} style={{ fontSize: '12px', fontWeight: '900', color: '#f87171' }}>
+                                    ⚠️ CAMBIO {m.tipo.toUpperCase()}: {m.detalle.toUpperCase()}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {it.special_notes && (
+                              <div style={{ fontSize: '12px', color: '#38bdf8', marginTop: '2px' }}>
+                                ↳ {it.special_notes}
+                              </div>
+                            )}
                           </div>
                         ))}
 
                         {order.notes && (
-                          <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed #333', fontSize: '13px', color: '#eab308', fontWeight: 'bold' }}>
-                            📝 NOTAS: {order.notes}
+                          <div style={{ marginTop: '8px', paddingTop: '6px', fontSize: '13px', color: '#eab308', fontWeight: 'bold' }}>
+                            📝 NOTA GENERAL: {order.notes}
                           </div>
                         )}
                       </div>
@@ -1183,7 +1349,7 @@ export default function GastronomicPOS() {
             <div style={{ backgroundColor: '#141414', padding: '18px', borderRadius: '10px', border: '1px solid #262626' }}>
               <p style={{ margin: 0, fontSize: '12px', color: '#a3a3a3' }}>Ventas Totales</p>
               <h3 style={{ margin: '6px 0 0 0', fontSize: '24px', fontWeight: '900', color: '#22c55e' }}>${grandTotalSales.toLocaleString('es-CL')}</h3>
-              <span style={{ fontSize: '11px', color: '#666' }}>{salesHistory.length} órdenes</span>
+              <span style={{ fontSize: '11px', color: '#666' }}>{salesHistory.length} órdenes registradas</span>
             </div>
 
             <div style={{ backgroundColor: '#141414', padding: '18px', borderRadius: '10px', border: '1px solid #262626' }}>
@@ -1208,7 +1374,7 @@ export default function GastronomicPOS() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px' }}>
             <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>Historial de Ventas del Turno</h3>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>Historial Completo de Pedidos</h3>
                 <button
                   onClick={fetchSales}
                   style={{ padding: '6px 12px', backgroundColor: '#262626', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '12px', cursor: 'pointer' }}
@@ -1222,38 +1388,56 @@ export default function GastronomicPOS() {
                   <thead>
                     <tr style={{ borderBottom: '1px solid #262626', color: '#a3a3a3' }}>
                       <th style={{ padding: '10px 8px' }}>Orden</th>
+                      <th style={{ padding: '10px 8px' }}>Hora</th>
                       <th style={{ padding: '10px 8px' }}>Cliente</th>
                       <th style={{ padding: '10px 8px' }}>Tipo</th>
-                      <th style={{ padding: '10px 8px' }}>Pago</th>
                       <th style={{ padding: '10px 8px' }}>Total</th>
+                      <th style={{ padding: '10px 8px', textAlign: 'center' }}>Detalle</th>
                       <th style={{ padding: '10px 8px', textAlign: 'center' }}>Ticket</th>
                     </tr>
                   </thead>
                   <tbody>
                     {salesHistory.length === 0 ? (
                       <tr>
-                        <td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: '#666' }}>
+                        <td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: '#666' }}>
                           No hay ventas registradas aún.
                         </td>
                       </tr>
                     ) : (
-                      salesHistory.map((s, idx) => (
-                        <tr key={s.id || idx} style={{ borderBottom: '1px solid #1f1f1f' }}>
-                          <td style={{ padding: '10px 8px', fontWeight: 'bold', color: '#ef4444' }}>#{s.order_number}</td>
-                          <td style={{ padding: '10px 8px' }}>{s.customer_name || 'General'}</td>
-                          <td style={{ padding: '10px 8px' }}>{s.order_type}</td>
-                          <td style={{ padding: '10px 8px' }}>{s.payment_method}</td>
-                          <td style={{ padding: '10px 8px', fontWeight: 'bold' }}>${Number(s.total_amount || 0).toLocaleString('es-CL')}</td>
-                          <td style={{ padding: '10px 8px', textAlign: 'center' }}>
-                            <button
-                              onClick={() => printProfessionalTicket(s)}
-                              style={{ padding: '4px 8px', backgroundColor: '#262626', border: '1px solid #404040', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}
-                            >
-                              🖨️
-                            </button>
-                          </td>
-                        </tr>
-                      ))
+                      salesHistory.map((s, idx) => {
+                        const timeStr = s.created_at
+                          ? new Date(s.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+                          : '--:--';
+                        return (
+                          <tr key={s.id || idx} style={{ borderBottom: '1px solid #1f1f1f' }}>
+                            <td style={{ padding: '10px 8px', fontWeight: 'bold', color: '#ef4444' }}>#{s.order_number}</td>
+                            <td style={{ padding: '10px 8px', color: '#a3a3a3' }}>{timeStr}</td>
+                            <td style={{ padding: '10px 8px' }}>{s.customer_name || 'General'}</td>
+                            <td style={{ padding: '10px 8px' }}>
+                              <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', backgroundColor: s.order_type === 'DELIVERY' ? '#1e3a8a' : '#14532d' }}>
+                                {s.order_type}
+                              </span>
+                            </td>
+                            <td style={{ padding: '10px 8px', fontWeight: 'bold' }}>${Number(s.total_amount || 0).toLocaleString('es-CL')}</td>
+                            <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                              <button
+                                onClick={() => setSelectedHistoryOrder(s)}
+                                style={{ padding: '4px 8px', backgroundColor: '#1f2937', border: '1px solid #374151', color: '#60a5fa', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                              >
+                                👁️ Ver
+                              </button>
+                            </td>
+                            <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                              <button
+                                onClick={() => printProfessionalTicket(s)}
+                                style={{ padding: '4px 8px', backgroundColor: '#262626', border: '1px solid #404040', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}
+                              >
+                                🖨️
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -1322,6 +1506,75 @@ export default function GastronomicPOS() {
                   🖨️ Imprimir Cierre (Informe Z)
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DETALLE DE PEDIDO HISTÓRICO */}
+      {selectedHistoryOrder && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '16px' }}>
+          <div style={{ backgroundColor: '#171717', border: '1px solid #333', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333', pb: '12px', marginBottom: '14px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#ef4444' }}>
+                  Orden #{selectedHistoryOrder.order_number}
+                </h3>
+                <span style={{ fontSize: '12px', color: '#a3a3a3' }}>
+                  {new Date(selectedHistoryOrder.created_at).toLocaleString('es-CL')}
+                </span>
+              </div>
+              <span style={{ padding: '4px 8px', borderRadius: '6px', fontSize: '12px', backgroundColor: selectedHistoryOrder.order_type === 'DELIVERY' ? '#1e3a8a' : '#14532d', color: '#fff', fontWeight: 'bold' }}>
+                {selectedHistoryOrder.order_type}
+              </span>
+            </div>
+
+            <div style={{ fontSize: '13px', color: '#d4d4d4', marginBottom: '16px', lineHeight: 1.5 }}>
+              <div>👤 <strong>Cliente:</strong> {selectedHistoryOrder.customer_name || 'General'} ({selectedHistoryOrder.customer_phone || 'Sin tel.'})</div>
+              {selectedHistoryOrder.delivery_address && <div>📍 <strong>Dirección:</strong> {selectedHistoryOrder.delivery_address}</div>}
+              <div>💳 <strong>Medio de Pago:</strong> {selectedHistoryOrder.payment_method}</div>
+            </div>
+
+            <div style={{ backgroundColor: '#0a0a0a', padding: '12px', borderRadius: '8px', border: '1px solid #262626', maxHeight: '200px', overflowY: 'auto', marginBottom: '16px' }}>
+              <div style={{ fontSize: '11px', color: '#a3a3a3', fontWeight: 'bold', marginBottom: '8px' }}>PRODUCTOS COMPRADOS:</div>
+              {(selectedHistoryOrder.items || []).map((it: any, i: number) => (
+                <div key={i} style={{ marginBottom: '8px', borderBottom: '1px dashed #262626', paddingBottom: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                    <span><strong>{it.quantity}x</strong> {it.product_name}</span>
+                    <span style={{ color: '#ef4444', fontWeight: 'bold' }}>${Number(it.subtotal || 0).toLocaleString('es-CL')}</span>
+                  </div>
+                  {it.modificaciones && it.modificaciones.length > 0 && (
+                    <div style={{ fontSize: '11px', color: '#f87171', paddingLeft: '8px', marginTop: '2px' }}>
+                      {it.modificaciones.map((m: any, mIdx: number) => (
+                        <div key={mIdx}>⚠️ {m.tipo}: {m.detalle}</div>
+                      ))}
+                    </div>
+                  )}
+                  {it.special_notes && <div style={{ fontSize: '11px', color: '#38bdf8', paddingLeft: '8px' }}>↳ {it.special_notes}</div>}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '18px', fontWeight: 'bold', borderTop: '1px solid #333', paddingTop: '12px', marginBottom: '16px' }}>
+              <span>Total Orden:</span>
+              <span style={{ color: '#22c55e' }}>${Number(selectedHistoryOrder.total_amount).toLocaleString('es-CL')}</span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => printProfessionalTicket(selectedHistoryOrder)}
+                style={{ flex: 1, padding: '10px', backgroundColor: '#262626', color: '#fff', border: '1px solid #404040', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+              >
+                🖨️ Re-imprimir Ticket
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedHistoryOrder(null)}
+                style={{ flex: 1, padding: '10px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>
