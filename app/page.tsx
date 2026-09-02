@@ -91,7 +91,7 @@ export default function GastronomicPOS() {
     return p.category || p.categoria || 'Varios';
   };
 
-  // Timer en vivo para actualizar cronómetros cada segundo
+  // Timer en vivo que fuerza actualización del reloj cada 1 segundo
   useEffect(() => {
     const timerInterval = setInterval(() => {
       setCurrentTime(Date.now());
@@ -99,7 +99,7 @@ export default function GastronomicPOS() {
     return () => clearInterval(timerInterval);
   }, []);
 
-  // Cargar pedidos locales de respaldo al abrir
+  // Cargar pedidos locales de respaldo al inicio
   useEffect(() => {
     try {
       const localActive = localStorage.getItem('sakesu_active_orders');
@@ -142,17 +142,13 @@ export default function GastronomicPOS() {
     }
   };
 
-  // Cargar Ventas y filtrar pendientes del día para Cocina
+  // Cargar Ventas y filtrar pendientes para Cocina
   const fetchSales = async () => {
     if (!supabaseUrl || !supabaseAnonKey) return;
     try {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-
       const { data, error } = await supabase
         .from('orders')
         .select('*')
-        .gte('created_at', todayStart.toISOString())
         .order('created_at', { ascending: false });
 
       if (!error && data) {
@@ -663,29 +659,50 @@ export default function GastronomicPOS() {
   const grandTotalSales = totalCashSales + totalDebitSales + totalTransferSales;
   const totalCashInDrawer = totalCashInEntries + totalCashSales;
 
-  // Formato del cronómetro y cálculo de color
-  const getElapsedInfo = (createdAtStr: string) => {
-    const created = new Date(createdAtStr).getTime();
-    const diffSec = Math.max(0, Math.floor((currentTime - created) / 1000));
-    const mins = Math.floor(diffSec / 60);
+  // Lógica del Cronómetro en vivo resistente a desfases y fechas nulas
+  const getElapsedInfo = (createdAtVal: any) => {
+    let createdMs = 0;
+    if (createdAtVal) {
+      const parsed = new Date(createdAtVal).getTime();
+      if (!isNaN(parsed)) {
+        createdMs = parsed;
+      }
+    }
+
+    // Si no trae fecha válida, asume que acaba de crearse
+    if (createdMs === 0) {
+      createdMs = currentTime;
+    }
+
+    const diffSec = Math.max(0, Math.floor((currentTime - createdMs) / 1000));
+    const hours = Math.floor(diffSec / 3600);
+    const mins = Math.floor((diffSec % 3600) / 60);
     const secs = diffSec % 60;
-    const formatted = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+    let formatted = '';
+    if (hours > 0) {
+      formatted = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    } else {
+      formatted = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    const totalMinutes = Math.floor(diffSec / 60);
 
     let color = '#22c55e'; // Verde (< 15 min)
     let bg = '#052e16';
     let border = '#15803d';
 
-    if (mins >= 25) {
+    if (totalMinutes >= 25) {
       color = '#ef4444'; // Rojo (> 25 min)
       bg = '#450a0a';
       border = '#dc2626';
-    } else if (mins >= 15) {
+    } else if (totalMinutes >= 15) {
       color = '#eab308'; // Amarillo (15 a 25 min)
       bg = '#422006';
       border = '#ca8a04';
     }
 
-    return { formatted, mins, color, bg, border };
+    return { formatted, totalMinutes, color, bg, border };
   };
 
   return (
@@ -1123,7 +1140,7 @@ export default function GastronomicPOS() {
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
               {activeOrders.map((order) => {
-                const elapsed = getElapsedInfo(order.created_at || new Date().toISOString());
+                const elapsed = getElapsedInfo(order.created_at);
                 const items = order.items || [];
                 return (
                   <div
@@ -1151,7 +1168,7 @@ export default function GastronomicPOS() {
                           </div>
                         </div>
 
-                        {/* Cronómetro en vivo */}
+                        {/* Cronómetro en vivo indestructible */}
                         <div
                           style={{
                             backgroundColor: elapsed.bg,
@@ -1186,6 +1203,7 @@ export default function GastronomicPOS() {
                               <span style={{ color: '#ef4444', marginRight: '6px' }}>[{it.quantity}x]</span>
                               {it.product_name}
                             </div>
+                            {/* Cambios de relleno o envoltura destacados para cocina */}
                             {it.modificaciones && it.modificaciones.length > 0 && (
                               <div style={{ marginTop: '4px', paddingLeft: '8px', borderLeft: '2px solid #ef4444' }}>
                                 {it.modificaciones.map((m: any, mIdx: number) => (
