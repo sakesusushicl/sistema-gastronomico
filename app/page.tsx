@@ -91,28 +91,12 @@ export default function GastronomicPOS() {
     return p.category || p.categoria || 'Varios';
   };
 
-  // Timer en vivo que fuerza actualización del reloj cada 1 segundo
+  // Timer en vivo
   useEffect(() => {
     const timerInterval = setInterval(() => {
       setCurrentTime(Date.now());
     }, 1000);
     return () => clearInterval(timerInterval);
-  }, []);
-
-  // Cargar pedidos locales de respaldo al inicio
-  useEffect(() => {
-    try {
-      const localActive = localStorage.getItem('sakesu_active_orders');
-      if (localActive) {
-        setActiveOrders(JSON.parse(localActive));
-      }
-      const localHistory = localStorage.getItem('sakesu_sales_history');
-      if (localHistory) {
-        setSalesHistory(JSON.parse(localHistory));
-      }
-    } catch (e) {
-      console.error('Error cargando storage local:', e);
-    }
   }, []);
 
   // Cargar Menú
@@ -142,7 +126,17 @@ export default function GastronomicPOS() {
     }
   };
 
-  // Cargar Ventas y filtrar pendientes para Cocina
+  // Obtener lista de órdenes completadas guardadas localmente
+  const getCompletedOrderKeys = (): string[] => {
+    try {
+      const stored = localStorage.getItem('sakesu_completed_keys');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  // Cargar ventas y filtrar pendientes
   const fetchSales = async () => {
     if (!supabaseUrl || !supabaseAnonKey) return;
     try {
@@ -153,15 +147,17 @@ export default function GastronomicPOS() {
 
       if (!error && data) {
         setSalesHistory(data);
-        localStorage.setItem('sakesu_sales_history', JSON.stringify(data));
+        const completedKeys = getCompletedOrderKeys();
 
+        // Filtrar pendientes: no debe estar 'completed' en la BD ni en la lista negra local
         const pending = data.filter((o: any) => {
           const st = String(o.status || 'pending').toLowerCase();
-          return st !== 'completed' && st !== 'listo' && st !== 'entregado';
+          const key = String(o.id || o.order_number);
+          const isMarkedCompleted = st === 'completed' || st === 'listo' || st === 'entregado';
+          return !isMarkedCompleted && !completedKeys.includes(key);
         });
 
         setActiveOrders(pending);
-        localStorage.setItem('sakesu_active_orders', JSON.stringify(pending));
       }
     } catch (err) {
       console.error('Error cargando ventas:', err);
@@ -173,30 +169,50 @@ export default function GastronomicPOS() {
     fetchSales();
   }, []);
 
-  // Marcar orden como lista (Sale de cocina y pasa a completada)
-  const handleMarkAsReady = async (orderId: any, orderNumber: any) => {
-    try {
-      if (supabaseUrl && supabaseAnonKey && orderId) {
-        await supabase.from('orders').update({ status: 'completed' }).eq('id', orderId);
-      }
+  // Marcar como listo DEFINITIVO
+  const handleMarkAsReady = async (order: any) => {
+    const orderKey = String(order.id || order.order_number);
 
-      const updatedActive = activeOrders.filter((o) => {
-        if (orderId && o.id) return o.id !== orderId;
-        return o.order_number !== orderNumber;
-      });
-      setActiveOrders(updatedActive);
-      localStorage.setItem('sakesu_active_orders', JSON.stringify(updatedActive));
-
-      const updatedHistory = salesHistory.map((o) =>
-        (o.id && o.id === orderId) || o.order_number === orderNumber
-          ? { ...o, status: 'completed' }
-          : o
-      );
-      setSalesHistory(updatedHistory);
-      localStorage.setItem('sakesu_sales_history', JSON.stringify(updatedHistory));
-    } catch (err: any) {
-      alert('Error al actualizar comanda: ' + err.message);
+    // 1. Guardar en lista negra local de inmediato
+    const completedKeys = getCompletedOrderKeys();
+    if (!completedKeys.includes(orderKey)) {
+      completedKeys.push(orderKey);
+      localStorage.setItem('sakesu_completed_keys', JSON.stringify(completedKeys));
     }
+
+    // 2. Quitarlo de la vista de cocina al instante
+    setActiveOrders((prev) => prev.filter((o) => String(o.id || o.order_number) !== orderKey));
+
+    // 3. Actualizar en el historial
+    setSalesHistory((prev) =>
+      prev.map((o) => (String(o.id || o.order_number) === orderKey ? { ...o, status: 'completed' } : o))
+    );
+
+    // 4. Actualizar en Supabase
+    try {
+      if (supabaseUrl && supabaseAnonKey) {
+        if (order.id) {
+          await supabase.from('orders').update({ status: 'completed' }).eq('id', order.id);
+        }
+        if (order.order_number) {
+          await supabase.from('orders').update({ status: 'completed' }).eq('order_number', order.order_number);
+        }
+      }
+    } catch (err) {
+      console.error('Error actualizando estado en base de datos:', err);
+    }
+  };
+
+  // Botón de emergencia para borrar todas las comandas viejas de cocina
+  const handleClearAllActiveOrders = () => {
+    if (!confirm('¿Deseas marcar TODOS los pedidos actuales como listos y limpiar la pantalla?')) return;
+    const completedKeys = getCompletedOrderKeys();
+    activeOrders.forEach((o) => {
+      const k = String(o.id || o.order_number);
+      if (!completedKeys.includes(k)) completedKeys.push(k);
+    });
+    localStorage.setItem('sakesu_completed_keys', JSON.stringify(completedKeys));
+    setActiveOrders([]);
   };
 
   const handleCreateProduct = async (e: React.FormEvent) => {
@@ -618,14 +634,8 @@ export default function GastronomicPOS() {
       }
 
       setLastOrder(orderData);
-
-      const newActive = [orderData, ...activeOrders];
-      setActiveOrders(newActive);
-      localStorage.setItem('sakesu_active_orders', JSON.stringify(newActive));
-
-      const newHistory = [orderData, ...salesHistory];
-      setSalesHistory(newHistory);
-      localStorage.setItem('sakesu_sales_history', JSON.stringify(newHistory));
+      setActiveOrders((prev) => [orderData, ...prev]);
+      setSalesHistory((prev) => [orderData, ...prev]);
 
       printProfessionalTicket(orderData);
 
@@ -659,7 +669,7 @@ export default function GastronomicPOS() {
   const grandTotalSales = totalCashSales + totalDebitSales + totalTransferSales;
   const totalCashInDrawer = totalCashInEntries + totalCashSales;
 
-  // Lógica del Cronómetro en vivo resistente a desfases y fechas nulas
+  // Lógica del Cronómetro en vivo
   const getElapsedInfo = (createdAtVal: any) => {
     let createdMs = 0;
     if (createdAtVal) {
@@ -669,7 +679,6 @@ export default function GastronomicPOS() {
       }
     }
 
-    // Si no trae fecha válida, asume que acaba de crearse
     if (createdMs === 0) {
       createdMs = currentTime;
     }
@@ -1116,20 +1125,29 @@ export default function GastronomicPOS() {
       {/* PESTAÑA: MONITOR DE COCINA (KDS) */}
       {activeTab === 'cocina' && (
         <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
             <div>
               <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold' }}>👨‍🍳 Pantalla de Cocina / KDS</h2>
               <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#a3a3a3' }}>
-                Comandas en preparación con cronómetros en tiempo real y alertas de cambio.
+                Comandas en preparación con cronómetros en tiempo real y control de despacho.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={fetchSales}
-              style={{ padding: '8px 16px', backgroundColor: '#262626', border: '1px solid #404040', color: '#fff', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
-            >
-              🔄 Actualizar Pedidos
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={handleClearAllActiveOrders}
+                style={{ padding: '8px 14px', backgroundColor: '#7f1d1d', border: '1px solid #dc2626', color: '#fff', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
+              >
+                🧹 Limpiar Todo
+              </button>
+              <button
+                type="button"
+                onClick={fetchSales}
+                style={{ padding: '8px 16px', backgroundColor: '#262626', border: '1px solid #404040', color: '#fff', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
+              >
+                🔄 Actualizar
+              </button>
+            </div>
           </div>
 
           {activeOrders.length === 0 ? (
@@ -1168,7 +1186,7 @@ export default function GastronomicPOS() {
                           </div>
                         </div>
 
-                        {/* Cronómetro en vivo indestructible */}
+                        {/* Cronómetro en vivo */}
                         <div
                           style={{
                             backgroundColor: elapsed.bg,
@@ -1203,7 +1221,6 @@ export default function GastronomicPOS() {
                               <span style={{ color: '#ef4444', marginRight: '6px' }}>[{it.quantity}x]</span>
                               {it.product_name}
                             </div>
-                            {/* Cambios de relleno o envoltura destacados para cocina */}
                             {it.modificaciones && it.modificaciones.length > 0 && (
                               <div style={{ marginTop: '4px', paddingLeft: '8px', borderLeft: '2px solid #ef4444' }}>
                                 {it.modificaciones.map((m: any, mIdx: number) => (
@@ -1248,7 +1265,7 @@ export default function GastronomicPOS() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleMarkAsReady(order.id, order.order_number)}
+                        onClick={() => handleMarkAsReady(order)}
                         style={{
                           flex: 1,
                           padding: '10px',
