@@ -91,13 +91,39 @@ export default function GastronomicPOS() {
     return p.category || p.categoria || 'Varios';
   };
 
-  // Timer en vivo
+  // Tick constante cada segundo
   useEffect(() => {
     const timerInterval = setInterval(() => {
       setCurrentTime(Date.now());
     }, 1000);
     return () => clearInterval(timerInterval);
   }, []);
+
+  // Cargar respaldo local permanente al iniciar
+  useEffect(() => {
+    try {
+      const savedActive = localStorage.getItem('sakesu_kds_active');
+      if (savedActive) {
+        setActiveOrders(JSON.parse(savedActive));
+      }
+      const savedHistory = localStorage.getItem('sakesu_kds_history');
+      if (savedHistory) {
+        setSalesHistory(JSON.parse(savedHistory));
+      }
+    } catch (e) {
+      console.error('Error cargando storage local:', e);
+    }
+  }, []);
+
+  const persistActiveOrders = (orders: any[]) => {
+    setActiveOrders(orders);
+    localStorage.setItem('sakesu_kds_active', JSON.stringify(orders));
+  };
+
+  const persistSalesHistory = (history: any[]) => {
+    setSalesHistory(history);
+    localStorage.setItem('sakesu_kds_history', JSON.stringify(history));
+  };
 
   // Cargar Menú
   const fetchMenu = async () => {
@@ -126,38 +152,60 @@ export default function GastronomicPOS() {
     }
   };
 
-  // Obtener lista de órdenes completadas guardadas localmente
-  const getCompletedOrderKeys = (): string[] => {
-    try {
-      const stored = localStorage.getItem('sakesu_completed_keys');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  };
-
-  // Cargar ventas y filtrar pendientes
+  // Sincronizar con Supabase SIN pisar pedidos locales pendientes
   const fetchSales = async () => {
     if (!supabaseUrl || !supabaseAnonKey) return;
     try {
       const { data, error } = await supabase
         .from('orders')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('id', { ascending: false });
 
-      if (!error && data) {
-        setSalesHistory(data);
-        const completedKeys = getCompletedOrderKeys();
+      if (error) {
+        console.warn('Aviso Supabase al leer órdenes:', error.message);
+        return;
+      }
 
-        // Filtrar pendientes: no debe estar 'completed' en la BD ni en la lista negra local
-        const pending = data.filter((o: any) => {
-          const st = String(o.status || 'pending').toLowerCase();
-          const key = String(o.id || o.order_number);
-          const isMarkedCompleted = st === 'completed' || st === 'listo' || st === 'entregado';
-          return !isMarkedCompleted && !completedKeys.includes(key);
+      if (data && data.length > 0) {
+        let completedKeys: string[] = [];
+        try {
+          const stored = localStorage.getItem('sakesu_done_keys_v4');
+          if (stored) completedKeys = JSON.parse(stored);
+        } catch (e) {}
+
+        const dbOrders = data.map((o: any) => {
+          let startMs = Date.now();
+          if (o.created_timestamp) {
+            startMs = Number(o.created_timestamp);
+          } else if (o.created_at) {
+            const p = new Date(o.created_at).getTime();
+            if (!isNaN(p)) startMs = p;
+          }
+          return {
+            ...o,
+            order_number: o.daily_order_number || o.order_number || o.id,
+            created_timestamp: startMs,
+          };
         });
 
-        setActiveOrders(pending);
+        // Combinar con órdenes locales para nunca perder una orden activa
+        setActiveOrders((prevActive) => {
+          const combined = [...prevActive];
+          dbOrders.forEach((dbo: any) => {
+            const key = String(dbo.id || dbo.daily_order_number || dbo.order_number);
+            const st = String(dbo.status || 'pending').toLowerCase();
+            const isCompleted = st === 'completed' || st === 'listo' || st === 'entregado';
+
+            if (!isCompleted && !completedKeys.includes(key)) {
+              const exists = combined.some((co: any) => String(co.id || co.daily_order_number || co.order_number) === key);
+              if (!exists) {
+                combined.push(dbo);
+              }
+            }
+          });
+          localStorage.setItem('sakesu_kds_active', JSON.stringify(combined));
+          return combined;
+        });
       }
     } catch (err) {
       console.error('Error cargando ventas:', err);
@@ -169,50 +217,57 @@ export default function GastronomicPOS() {
     fetchSales();
   }, []);
 
-  // Marcar como listo DEFINITIVO
+  // Marcar como listo / despachar
   const handleMarkAsReady = async (order: any) => {
-    const orderKey = String(order.id || order.order_number);
+    const orderKey = String(order.id || order.daily_order_number || order.order_number);
 
-    // 1. Guardar en lista negra local de inmediato
-    const completedKeys = getCompletedOrderKeys();
+    let completedKeys: string[] = [];
+    try {
+      const stored = localStorage.getItem('sakesu_done_keys_v4');
+      if (stored) completedKeys = JSON.parse(stored);
+    } catch (e) {}
+
     if (!completedKeys.includes(orderKey)) {
       completedKeys.push(orderKey);
-      localStorage.setItem('sakesu_completed_keys', JSON.stringify(completedKeys));
+      localStorage.setItem('sakesu_done_keys_v4', JSON.stringify(completedKeys));
     }
 
-    // 2. Quitarlo de la vista de cocina al instante
-    setActiveOrders((prev) => prev.filter((o) => String(o.id || o.order_number) !== orderKey));
+    const newActive = activeOrders.filter((o) => String(o.id || o.daily_order_number || o.order_number) !== orderKey);
+    persistActiveOrders(newActive);
 
-    // 3. Actualizar en el historial
-    setSalesHistory((prev) =>
-      prev.map((o) => (String(o.id || o.order_number) === orderKey ? { ...o, status: 'completed' } : o))
+    const newHistory = salesHistory.map((o) =>
+      String(o.id || o.daily_order_number || o.order_number) === orderKey ? { ...o, status: 'completed' } : o
     );
+    persistSalesHistory(newHistory);
 
-    // 4. Actualizar en Supabase
     try {
       if (supabaseUrl && supabaseAnonKey) {
         if (order.id) {
           await supabase.from('orders').update({ status: 'completed' }).eq('id', order.id);
-        }
-        if (order.order_number) {
-          await supabase.from('orders').update({ status: 'completed' }).eq('order_number', order.order_number);
+        } else if (order.daily_order_number) {
+          await supabase.from('orders').update({ status: 'completed' }).eq('daily_order_number', order.daily_order_number);
         }
       }
     } catch (err) {
-      console.error('Error actualizando estado en base de datos:', err);
+      console.error('Error al actualizar en Supabase:', err);
     }
   };
 
-  // Botón de emergencia para borrar todas las comandas viejas de cocina
   const handleClearAllActiveOrders = () => {
-    if (!confirm('¿Deseas marcar TODOS los pedidos actuales como listos y limpiar la pantalla?')) return;
-    const completedKeys = getCompletedOrderKeys();
+    if (!confirm('¿Deseas limpiar todos los pedidos de la cocina ahora?')) return;
+    let completedKeys: string[] = [];
+    try {
+      const stored = localStorage.getItem('sakesu_done_keys_v4');
+      if (stored) completedKeys = JSON.parse(stored);
+    } catch (e) {}
+
     activeOrders.forEach((o) => {
-      const k = String(o.id || o.order_number);
+      const k = String(o.id || o.daily_order_number || o.order_number);
       if (!completedKeys.includes(k)) completedKeys.push(k);
     });
-    localStorage.setItem('sakesu_completed_keys', JSON.stringify(completedKeys));
-    setActiveOrders([]);
+
+    localStorage.setItem('sakesu_done_keys_v4', JSON.stringify(completedKeys));
+    persistActiveOrders([]);
   };
 
   const handleCreateProduct = async (e: React.FormEvent) => {
@@ -360,6 +415,7 @@ export default function GastronomicPOS() {
     horas = horas ? horas : 12;
     const horaFormateada = `${String(horas).padStart(2, '0')}:${minutos} ${ampm}`;
 
+    const orderNum = order.daily_order_number || order.order_number || order.id || '001';
     const items = order.items || [];
     const itemsRows = items
       .map((it: any) => {
@@ -387,7 +443,7 @@ export default function GastronomicPOS() {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Comanda #${order.order_number}</title>
+        <title>Comanda #${orderNum}</title>
         <style>
           @page { margin: 0; size: auto; }
           body {
@@ -411,7 +467,7 @@ export default function GastronomicPOS() {
         <div class="center" style="font-size: 13px; margin-top: 1px; font-weight: 900;">COMANDA DE PRODUCCIÓN</div>
         <div class="divider-solid"></div>
 
-        <div class="center" style="font-size: 28px; font-weight: 900; margin: 4px 0;">ORDEN #${order.order_number}</div>
+        <div class="center" style="font-size: 28px; font-weight: 900; margin: 4px 0;">ORDEN #${orderNum}</div>
         <div class="center" style="font-size: 16px; font-weight: 900;">
           *** ${order.order_type === 'DELIVERY' ? 'SERVICIO DELIVERY' : 'RETIRO EN LOCAL'} ***
         </div>
@@ -603,6 +659,7 @@ export default function GastronomicPOS() {
     alert(`¡Entrada de $${val.toLocaleString('es-CL')} registrada!`);
   };
 
+  // Creación y envío
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (orderItems.length === 0) {
@@ -612,44 +669,58 @@ export default function GastronomicPOS() {
 
     setIsSubmitting(true);
     setStatusMessage('');
-    const orderNumber = Math.floor(Math.random() * 900) + 100;
+    const randomOrderNum = Math.floor(Math.random() * 900) + 100;
+    const nowTimeMs = Date.now();
 
-    const orderData = {
-      order_number: orderNumber,
+    const orderData: any = {
+      daily_order_number: randomOrderNum,
+      order_number: randomOrderNum,
+      order_type: orderType,
       customer_name: customerName || 'Cliente General',
       customer_phone: customerPhone,
       delivery_address: customerAddress,
-      order_type: orderType,
       payment_method: paymentMethod,
-      items: orderItems,
+      items: [...orderItems],
       total_amount: totalAmount,
       notes: orderNotes,
       status: 'pending',
-      created_at: new Date().toISOString(),
+      created_timestamp: nowTimeMs,
+      created_at: new Date(nowTimeMs).toISOString(),
     };
 
+    // 1. Guardar de inmediato en cocina
+    persistActiveOrders([orderData, ...activeOrders]);
+    persistSalesHistory([orderData, ...salesHistory]);
+
+    // 2. Guardar en Supabase
     try {
       if (supabaseUrl && supabaseAnonKey) {
-        await supabase.from('orders').insert([orderData]);
+        const { data, error } = await supabase.from('orders').insert([
+          {
+            daily_order_number: randomOrderNum,
+            order_type: orderType,
+            status: 'pending',
+          }
+        ]).select();
+
+        if (data && data.length > 0) {
+          orderData.id = data[0].id;
+        }
       }
-
-      setLastOrder(orderData);
-      setActiveOrders((prev) => [orderData, ...prev]);
-      setSalesHistory((prev) => [orderData, ...prev]);
-
-      printProfessionalTicket(orderData);
-
-      setStatusMessage(`¡Comanda #${orderNumber} enviada a cocina e impresa!`);
-      setOrderItems([]);
-      setCustomerName('');
-      setCustomerPhone('');
-      setCustomerAddress('');
-      setOrderNotes('');
     } catch (err: any) {
-      alert('Error guardando la orden: ' + err.message);
-    } finally {
-      setIsSubmitting(false);
+      console.error('Error de conexión Supabase:', err.message);
     }
+
+    setLastOrder(orderData);
+    printProfessionalTicket(orderData);
+
+    setStatusMessage(`¡Comanda #${randomOrderNum} enviada a cocina!`);
+    setOrderItems([]);
+    setCustomerName('');
+    setCustomerPhone('');
+    setCustomerAddress('');
+    setOrderNotes('');
+    setIsSubmitting(false);
   };
 
   // Métricas para pestaña de Caja
@@ -669,21 +740,21 @@ export default function GastronomicPOS() {
   const grandTotalSales = totalCashSales + totalDebitSales + totalTransferSales;
   const totalCashInDrawer = totalCashInEntries + totalCashSales;
 
-  // Lógica del Cronómetro en vivo
-  const getElapsedInfo = (createdAtVal: any) => {
-    let createdMs = 0;
-    if (createdAtVal) {
-      const parsed = new Date(createdAtVal).getTime();
-      if (!isNaN(parsed)) {
-        createdMs = parsed;
-      }
+  // Lógica de cronómetro en vivo
+  const getElapsedInfo = (order: any) => {
+    let startMs = 0;
+    if (order.created_timestamp) {
+      startMs = Number(order.created_timestamp);
+    } else if (order.created_at) {
+      const parsed = new Date(order.created_at).getTime();
+      if (!isNaN(parsed)) startMs = parsed;
     }
 
-    if (createdMs === 0) {
-      createdMs = currentTime;
+    if (startMs === 0 || isNaN(startMs)) {
+      startMs = currentTime;
     }
 
-    const diffSec = Math.max(0, Math.floor((currentTime - createdMs) / 1000));
+    const diffSec = Math.max(0, Math.floor((currentTime - startMs) / 1000));
     const hours = Math.floor(diffSec / 3600);
     const mins = Math.floor((diffSec % 3600) / 60);
     const secs = diffSec % 60;
@@ -697,16 +768,16 @@ export default function GastronomicPOS() {
 
     const totalMinutes = Math.floor(diffSec / 60);
 
-    let color = '#22c55e'; // Verde (< 15 min)
+    let color = '#22c55e';
     let bg = '#052e16';
     let border = '#15803d';
 
     if (totalMinutes >= 25) {
-      color = '#ef4444'; // Rojo (> 25 min)
+      color = '#ef4444';
       bg = '#450a0a';
       border = '#dc2626';
     } else if (totalMinutes >= 15) {
-      color = '#eab308'; // Amarillo (15 a 25 min)
+      color = '#eab308';
       bg = '#422006';
       border = '#ca8a04';
     }
@@ -716,7 +787,7 @@ export default function GastronomicPOS() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a', color: '#ffffff', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      {/* Header con pestañas */}
+      {/* Header */}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', backgroundColor: '#121212', borderBottom: '1px solid #262626' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '24px', fontWeight: '900', letterSpacing: '0.5px' }}>
@@ -748,7 +819,7 @@ export default function GastronomicPOS() {
             type="button"
             onClick={() => {
               setActiveTab('cocina');
-              fetchSales();
+              // Al entrar a cocina no reseteamos los pedidos activos
             }}
             style={{
               padding: '8px 16px',
@@ -898,7 +969,7 @@ export default function GastronomicPOS() {
                     onClick={() => printProfessionalTicket(lastOrder)}
                     style={{ padding: '4px 10px', backgroundColor: '#262626', border: '1px solid #404040', color: '#fff', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
                   >
-                    🖨️ Re-imprimir #{lastOrder.order_number}
+                    🖨️ Re-imprimir #{lastOrder.daily_order_number || lastOrder.order_number}
                   </button>
                 )}
               </div>
@@ -1158,11 +1229,13 @@ export default function GastronomicPOS() {
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
               {activeOrders.map((order) => {
-                const elapsed = getElapsedInfo(order.created_at);
+                const elapsed = getElapsedInfo(order);
                 const items = order.items || [];
+                const orderNum = order.daily_order_number || order.order_number || order.id;
+
                 return (
                   <div
-                    key={order.id || order.order_number}
+                    key={order.id || orderNum}
                     style={{
                       backgroundColor: '#141414',
                       border: `2px solid ${elapsed.border}`,
@@ -1175,18 +1248,18 @@ export default function GastronomicPOS() {
                     }}
                   >
                     <div>
-                      {/* Cabecera de la Comanda */}
+                      {/* Cabecera */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #262626', paddingBottom: '10px', marginBottom: '12px' }}>
                         <div>
                           <span style={{ fontSize: '22px', fontWeight: '900', color: '#fff' }}>
-                            #{order.order_number}
+                            #{orderNum}
                           </span>
                           <div style={{ fontSize: '12px', color: '#ef4444', fontWeight: 'bold', marginTop: '2px' }}>
                             {order.order_type === 'DELIVERY' ? '🛵 DELIVERY' : '🛍️ RETIRO'}
                           </div>
                         </div>
 
-                        {/* Cronómetro en vivo */}
+                        {/* Cronómetro exacto */}
                         <div
                           style={{
                             backgroundColor: elapsed.bg,
@@ -1204,7 +1277,7 @@ export default function GastronomicPOS() {
                         </div>
                       </div>
 
-                      {/* Info del Cliente */}
+                      {/* Info Cliente */}
                       <div style={{ fontSize: '13px', color: '#ccc', marginBottom: '12px', lineHeight: 1.4 }}>
                         <div style={{ fontWeight: 'bold', color: '#fff' }}>👤 {order.customer_name || 'Cliente General'}</div>
                         {order.delivery_address && (
@@ -1212,7 +1285,7 @@ export default function GastronomicPOS() {
                         )}
                       </div>
 
-                      {/* Lista de Rolls / Productos con modificaciones visibles */}
+                      {/* Lista de Rolls */}
                       <div style={{ backgroundColor: '#0a0a0a', padding: '10px', borderRadius: '8px', border: '1px solid #262626', marginBottom: '12px' }}>
                         <div style={{ fontSize: '11px', color: '#a3a3a3', fontWeight: 'bold', marginBottom: '6px' }}>PRODUCTOS A PREPARAR:</div>
                         {items.map((it: any, idx: number) => (
@@ -1221,6 +1294,7 @@ export default function GastronomicPOS() {
                               <span style={{ color: '#ef4444', marginRight: '6px' }}>[{it.quantity}x]</span>
                               {it.product_name}
                             </div>
+                            {/* Cambios de relleno o envoltura destacados para cocina */}
                             {it.modificaciones && it.modificaciones.length > 0 && (
                               <div style={{ marginTop: '4px', paddingLeft: '8px', borderLeft: '2px solid #ef4444' }}>
                                 {it.modificaciones.map((m: any, mIdx: number) => (
@@ -1486,12 +1560,15 @@ export default function GastronomicPOS() {
                       </tr>
                     ) : (
                       salesHistory.map((s, idx) => {
-                        const timeStr = s.created_at
+                        const timeStr = s.created_timestamp
+                          ? new Date(s.created_timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+                          : s.created_at
                           ? new Date(s.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
                           : '--:--';
+                        const oNum = s.daily_order_number || s.order_number || s.id;
                         return (
                           <tr key={s.id || idx} style={{ borderBottom: '1px solid #1f1f1f' }}>
-                            <td style={{ padding: '10px 8px', fontWeight: 'bold', color: '#ef4444' }}>#{s.order_number}</td>
+                            <td style={{ padding: '10px 8px', fontWeight: 'bold', color: '#ef4444' }}>#{oNum}</td>
                             <td style={{ padding: '10px 8px', color: '#a3a3a3' }}>{timeStr}</td>
                             <td style={{ padding: '10px 8px' }}>{s.customer_name || 'General'}</td>
                             <td style={{ padding: '10px 8px' }}>
@@ -1599,10 +1676,10 @@ export default function GastronomicPOS() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333', paddingBottom: '12px', marginBottom: '14px' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#ef4444' }}>
-                  Orden #{selectedHistoryOrder.order_number}
+                  Orden #{selectedHistoryOrder.daily_order_number || selectedHistoryOrder.order_number || selectedHistoryOrder.id}
                 </h3>
                 <span style={{ fontSize: '12px', color: '#a3a3a3' }}>
-                  {new Date(selectedHistoryOrder.created_at).toLocaleString('es-CL')}
+                  {new Date(selectedHistoryOrder.created_timestamp || selectedHistoryOrder.created_at).toLocaleString('es-CL')}
                 </span>
               </div>
               <span style={{ padding: '4px 8px', borderRadius: '6px', fontSize: '12px', backgroundColor: selectedHistoryOrder.order_type === 'DELIVERY' ? '#1e3a8a' : '#14532d', color: '#fff', fontWeight: 'bold' }}>
