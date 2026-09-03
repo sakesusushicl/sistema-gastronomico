@@ -91,7 +91,7 @@ export default function GastronomicPOS() {
     return p.category || p.categoria || 'Varios';
   };
 
-  // Tick constante cada segundo
+  // Timer en vivo
   useEffect(() => {
     const timerInterval = setInterval(() => {
       setCurrentTime(Date.now());
@@ -99,7 +99,7 @@ export default function GastronomicPOS() {
     return () => clearInterval(timerInterval);
   }, []);
 
-  // Cargar respaldo local permanente al iniciar
+  // Cargar persistencia local al inicio
   useEffect(() => {
     try {
       const savedActive = localStorage.getItem('sakesu_kds_active');
@@ -111,7 +111,7 @@ export default function GastronomicPOS() {
         setSalesHistory(JSON.parse(savedHistory));
       }
     } catch (e) {
-      console.error('Error cargando storage local:', e);
+      console.error('Error cargando storage:', e);
     }
   }, []);
 
@@ -152,7 +152,7 @@ export default function GastronomicPOS() {
     }
   };
 
-  // Sincronizar con Supabase SIN pisar pedidos locales pendientes
+  // Cargar ventas sin sobreescribir órdenes locales
   const fetchSales = async () => {
     if (!supabaseUrl || !supabaseAnonKey) return;
     try {
@@ -167,28 +167,29 @@ export default function GastronomicPOS() {
       }
 
       if (data && data.length > 0) {
-        let completedKeys: string[] = [];
+        let deletedKeys: string[] = [];
         try {
-          const stored = localStorage.getItem('sakesu_done_keys_v4');
-          if (stored) completedKeys = JSON.parse(stored);
+          const stored = localStorage.getItem('sakesu_deleted_keys');
+          if (stored) deletedKeys = JSON.parse(stored);
         } catch (e) {}
 
-        const dbOrders = data.map((o: any) => {
-          let startMs = Date.now();
-          if (o.created_timestamp) {
-            startMs = Number(o.created_timestamp);
-          } else if (o.created_at) {
-            const p = new Date(o.created_at).getTime();
-            if (!isNaN(p)) startMs = p;
-          }
-          return {
-            ...o,
-            order_number: o.daily_order_number || o.order_number || o.id,
-            created_timestamp: startMs,
-          };
-        });
+        const dbOrders = data
+          .filter((o: any) => !deletedKeys.includes(String(o.id || o.daily_order_number || o.order_number)))
+          .map((o: any) => {
+            let startMs = Date.now();
+            if (o.created_timestamp) {
+              startMs = Number(o.created_timestamp);
+            } else if (o.created_at) {
+              const p = new Date(o.created_at).getTime();
+              if (!isNaN(p)) startMs = p;
+            }
+            return {
+              ...o,
+              order_number: o.daily_order_number || o.order_number || o.id,
+              created_timestamp: startMs,
+            };
+          });
 
-        // Combinar con órdenes locales para nunca perder una orden activa
         setActiveOrders((prevActive) => {
           const combined = [...prevActive];
           dbOrders.forEach((dbo: any) => {
@@ -196,11 +197,9 @@ export default function GastronomicPOS() {
             const st = String(dbo.status || 'pending').toLowerCase();
             const isCompleted = st === 'completed' || st === 'listo' || st === 'entregado';
 
-            if (!isCompleted && !completedKeys.includes(key)) {
+            if (!isCompleted) {
               const exists = combined.some((co: any) => String(co.id || co.daily_order_number || co.order_number) === key);
-              if (!exists) {
-                combined.push(dbo);
-              }
+              if (!exists) combined.push(dbo);
             }
           });
           localStorage.setItem('sakesu_kds_active', JSON.stringify(combined));
@@ -220,17 +219,6 @@ export default function GastronomicPOS() {
   // Marcar como listo / despachar
   const handleMarkAsReady = async (order: any) => {
     const orderKey = String(order.id || order.daily_order_number || order.order_number);
-
-    let completedKeys: string[] = [];
-    try {
-      const stored = localStorage.getItem('sakesu_done_keys_v4');
-      if (stored) completedKeys = JSON.parse(stored);
-    } catch (e) {}
-
-    if (!completedKeys.includes(orderKey)) {
-      completedKeys.push(orderKey);
-      localStorage.setItem('sakesu_done_keys_v4', JSON.stringify(completedKeys));
-    }
 
     const newActive = activeOrders.filter((o) => String(o.id || o.daily_order_number || o.order_number) !== orderKey);
     persistActiveOrders(newActive);
@@ -253,20 +241,54 @@ export default function GastronomicPOS() {
     }
   };
 
-  const handleClearAllActiveOrders = () => {
-    if (!confirm('¿Deseas limpiar todos los pedidos de la cocina ahora?')) return;
-    let completedKeys: string[] = [];
+  // ELIMINAR / ANULAR PEDIDO DEFINITIVAMENTE
+  const handleDeleteOrder = async (order: any) => {
+    const orderNum = order.daily_order_number || order.order_number || order.id;
+    if (!confirm(`¿Estás seguro de que deseas ELIMINAR y anular la comanda #${orderNum}?`)) return;
+
+    const orderKey = String(order.id || orderNum);
+
+    // 1. Registrar en lista de eliminados local
+    let deletedKeys: string[] = [];
     try {
-      const stored = localStorage.getItem('sakesu_done_keys_v4');
-      if (stored) completedKeys = JSON.parse(stored);
+      const stored = localStorage.getItem('sakesu_deleted_keys');
+      if (stored) deletedKeys = JSON.parse(stored);
     } catch (e) {}
 
-    activeOrders.forEach((o) => {
-      const k = String(o.id || o.daily_order_number || o.order_number);
-      if (!completedKeys.includes(k)) completedKeys.push(k);
-    });
+    if (!deletedKeys.includes(orderKey)) {
+      deletedKeys.push(orderKey);
+      localStorage.setItem('sakesu_deleted_keys', JSON.stringify(deletedKeys));
+    }
 
-    localStorage.setItem('sakesu_done_keys_v4', JSON.stringify(completedKeys));
+    // 2. Quitar de la cocina e historial al instante
+    const newActive = activeOrders.filter((o) => String(o.id || o.daily_order_number || o.order_number) !== orderKey);
+    persistActiveOrders(newActive);
+
+    const newHistory = salesHistory.filter((o) => String(o.id || o.daily_order_number || o.order_number) !== orderKey);
+    persistSalesHistory(newHistory);
+
+    if (selectedHistoryOrder && String(selectedHistoryOrder.id || selectedHistoryOrder.daily_order_number) === orderKey) {
+      setSelectedHistoryOrder(null);
+    }
+
+    // 3. Borrar de la base de datos Supabase
+    try {
+      if (supabaseUrl && supabaseAnonKey) {
+        if (order.id) {
+          await supabase.from('orders').delete().eq('id', order.id);
+        } else if (order.daily_order_number) {
+          await supabase.from('orders').delete().eq('daily_order_number', order.daily_order_number);
+        }
+      }
+    } catch (err) {
+      console.error('Error al borrar en Supabase:', err);
+    }
+
+    alert(`Comanda #${orderNum} eliminada correctamente.`);
+  };
+
+  const handleClearAllActiveOrders = () => {
+    if (!confirm('¿Deseas limpiar todos los pedidos de la cocina ahora?')) return;
     persistActiveOrders([]);
   };
 
@@ -688,14 +710,12 @@ export default function GastronomicPOS() {
       created_at: new Date(nowTimeMs).toISOString(),
     };
 
-    // 1. Guardar de inmediato en cocina
     persistActiveOrders([orderData, ...activeOrders]);
     persistSalesHistory([orderData, ...salesHistory]);
 
-    // 2. Guardar en Supabase
     try {
       if (supabaseUrl && supabaseAnonKey) {
-        const { data, error } = await supabase.from('orders').insert([
+        const { data } = await supabase.from('orders').insert([
           {
             daily_order_number: randomOrderNum,
             order_type: orderType,
@@ -817,10 +837,7 @@ export default function GastronomicPOS() {
           </button>
           <button
             type="button"
-            onClick={() => {
-              setActiveTab('cocina');
-              // Al entrar a cocina no reseteamos los pedidos activos
-            }}
+            onClick={() => setActiveTab('cocina')}
             style={{
               padding: '8px 16px',
               borderRadius: '8px',
@@ -886,7 +903,6 @@ export default function GastronomicPOS() {
       {/* PESTAÑA: POS */}
       {activeTab === 'pos' && (
         <div style={{ display: 'flex', flexWrap: 'wrap', minHeight: 'calc(100vh - 75px)' }}>
-          {/* Catálogo de Productos */}
           <div style={{ flex: '1 1 600px', padding: '24px', borderRight: '1px solid #262626' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>Carta de Productos</h2>
@@ -899,7 +915,6 @@ export default function GastronomicPOS() {
               />
             </div>
 
-            {/* Categorías */}
             <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '12px', marginBottom: '16px' }}>
               {categories.map((cat) => (
                 <button
@@ -923,7 +938,6 @@ export default function GastronomicPOS() {
               ))}
             </div>
 
-            {/* Grilla */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '14px' }}>
               {filteredProducts.map((product, idx) => {
                 const name = getProductName(product);
@@ -956,7 +970,6 @@ export default function GastronomicPOS() {
             </div>
           </div>
 
-          {/* Panel Comanda */}
           <div style={{ width: '420px', backgroundColor: '#121212', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #262626', paddingBottom: '8px', marginBottom: '16px' }}>
@@ -974,7 +987,6 @@ export default function GastronomicPOS() {
                 )}
               </div>
 
-              {/* Items con selector de cambios */}
               <div style={{ maxHeight: '250px', overflowY: 'auto', marginBottom: '16px' }}>
                 {orderItems.length === 0 ? (
                   <p style={{ fontSize: '13px', color: '#666666', textAlign: 'center', margin: '30px 0' }}>
@@ -996,7 +1008,6 @@ export default function GastronomicPOS() {
                         </div>
                       </div>
 
-                      {/* Botón y visualización de modificaciones */}
                       <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed #262626', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ fontSize: '11px', color: '#eab308' }}>
                           {item.modificaciones && item.modificaciones.length > 0 ? (
@@ -1021,7 +1032,6 @@ export default function GastronomicPOS() {
                 )}
               </div>
 
-              {/* Formulario */}
               <form onSubmit={handleSubmitOrder} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
@@ -1200,7 +1210,7 @@ export default function GastronomicPOS() {
             <div>
               <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold' }}>👨‍🍳 Pantalla de Cocina / KDS</h2>
               <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#a3a3a3' }}>
-                Comandas en preparación con cronómetros en tiempo real y control de despacho.
+                Comandas en preparación con cronómetros en tiempo real y opción de anulación.
               </p>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -1294,7 +1304,6 @@ export default function GastronomicPOS() {
                               <span style={{ color: '#ef4444', marginRight: '6px' }}>[{it.quantity}x]</span>
                               {it.product_name}
                             </div>
-                            {/* Cambios de relleno o envoltura destacados para cocina */}
                             {it.modificaciones && it.modificaciones.length > 0 && (
                               <div style={{ marginTop: '4px', paddingLeft: '8px', borderLeft: '2px solid #ef4444' }}>
                                 {it.modificaciones.map((m: any, mIdx: number) => (
@@ -1320,7 +1329,7 @@ export default function GastronomicPOS() {
                       </div>
                     </div>
 
-                    {/* Botones de Acción */}
+                    {/* Botones de Acción con botón de ELIMINAR */}
                     <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                       <button
                         type="button"
@@ -1334,8 +1343,25 @@ export default function GastronomicPOS() {
                           cursor: 'pointer',
                           fontWeight: 'bold',
                         }}
+                        title="Imprimir ticket"
                       >
                         🖨️
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteOrder(order)}
+                        style={{
+                          padding: '10px 12px',
+                          backgroundColor: '#3b1111',
+                          border: '1px solid #7f1d1d',
+                          color: '#f87171',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontWeight: 'bold',
+                        }}
+                        title="Eliminar orden"
+                      >
+                        🗑️
                       </button>
                       <button
                         type="button"
@@ -1352,7 +1378,7 @@ export default function GastronomicPOS() {
                           cursor: 'pointer',
                         }}
                       >
-                        ✅ Marcar Listo / Despachar
+                        ✅ Listo
                       </button>
                     </div>
                   </div>
@@ -1548,7 +1574,7 @@ export default function GastronomicPOS() {
                       <th style={{ padding: '10px 8px' }}>Tipo</th>
                       <th style={{ padding: '10px 8px' }}>Total</th>
                       <th style={{ padding: '10px 8px', textAlign: 'center' }}>Detalle</th>
-                      <th style={{ padding: '10px 8px', textAlign: 'center' }}>Ticket</th>
+                      <th style={{ padding: '10px 8px', textAlign: 'center' }}>Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1585,12 +1611,20 @@ export default function GastronomicPOS() {
                                 👁️ Ver
                               </button>
                             </td>
-                            <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                            <td style={{ padding: '10px 8px', textAlign: 'center', display: 'flex', gap: '4px', justifyContent: 'center' }}>
                               <button
                                 onClick={() => printProfessionalTicket(s)}
                                 style={{ padding: '4px 8px', backgroundColor: '#262626', border: '1px solid #404040', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}
+                                title="Imprimir"
                               >
                                 🖨️
+                              </button>
+                              <button
+                                onClick={() => handleDeleteOrder(s)}
+                                style={{ padding: '4px 8px', backgroundColor: '#3b1111', border: '1px solid #7f1d1d', color: '#f87171', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}
+                                title="Eliminar orden"
+                              >
+                                🗑️
                               </button>
                             </td>
                           </tr>
@@ -1728,8 +1762,15 @@ export default function GastronomicPOS() {
               </button>
               <button
                 type="button"
+                onClick={() => handleDeleteOrder(selectedHistoryOrder)}
+                style={{ flex: 1, padding: '10px', backgroundColor: '#3b1111', color: '#f87171', border: '1px solid #7f1d1d', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+              >
+                🗑️ Eliminar
+              </button>
+              <button
+                type="button"
                 onClick={() => setSelectedHistoryOrder(null)}
-                style={{ flex: 1, padding: '10px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+                style={{ flex: 1, padding: '10px', backgroundColor: '#262626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
               >
                 Cerrar
               </button>
