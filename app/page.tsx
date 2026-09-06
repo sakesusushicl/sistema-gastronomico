@@ -35,6 +35,31 @@ interface OrderItem {
   modificaciones?: ItemModification[];
 }
 
+// Función para asegurar la fecha y hora oficial de Chile (evita desfases UTC)
+const getChileDateTime = (timestampOrDate?: number | string) => {
+  if (!timestampOrDate) {
+    const now = new Date();
+    return {
+      fecha: now.toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', year: 'numeric' }),
+      hora: now.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hour12: true })
+    };
+  }
+  const d = typeof timestampOrDate === 'number' ? new Date(timestampOrDate) : new Date(timestampOrDate);
+  const fecha = d.toLocaleDateString('es-CL', {
+    timeZone: 'America/Santiago',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+  const hora = d.toLocaleTimeString('es-CL', {
+    timeZone: 'America/Santiago',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+  return { fecha, hora };
+};
+
 export default function GastronomicPOS() {
   const [activeTab, setActiveTab] = useState<'pos' | 'cocina' | 'menu' | 'caja'>('pos');
   
@@ -55,6 +80,10 @@ export default function GastronomicPOS() {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [lastOrder, setLastOrder] = useState<any>(null);
+
+  // Control de Apertura / Cierre de Caja
+  const [isShiftOpen, setIsShiftOpen] = useState<boolean>(true);
+  const [shiftOpenTime, setShiftOpenTime] = useState<number>(0);
 
   // Modal para Cambios de Relleno/Envoltura
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
@@ -110,6 +139,24 @@ export default function GastronomicPOS() {
       if (savedHistory) {
         setSalesHistory(JSON.parse(savedHistory));
       }
+      const savedCash = localStorage.getItem('sakesu_cash_entries');
+      if (savedCash) {
+        setCashEntries(JSON.parse(savedCash));
+      }
+
+      // Estado del turno de caja
+      const savedShiftStatus = localStorage.getItem('sakesu_shift_open');
+      const savedShiftTime = localStorage.getItem('sakesu_shift_time');
+      if (savedShiftStatus !== null) {
+        setIsShiftOpen(savedShiftStatus === 'true');
+      }
+      if (savedShiftTime) {
+        setShiftOpenTime(Number(savedShiftTime));
+      } else {
+        const now = Date.now();
+        setShiftOpenTime(now);
+        localStorage.setItem('sakesu_shift_time', String(now));
+      }
     } catch (e) {
       console.error('Error cargando storage:', e);
     }
@@ -123,6 +170,49 @@ export default function GastronomicPOS() {
   const persistSalesHistory = (history: any[]) => {
     setSalesHistory(history);
     localStorage.setItem('sakesu_kds_history', JSON.stringify(history));
+  };
+
+  const persistCashEntries = (entries: any[]) => {
+    setCashEntries(entries);
+    localStorage.setItem('sakesu_cash_entries', JSON.stringify(entries));
+  };
+
+  // Apertura y Cierre de Turno
+  const handleOpenShift = () => {
+    const defaultBase = prompt('Ingresa el monto de base / fondo inicial en efectivo ($):', '30000');
+    if (defaultBase === null) return;
+
+    const baseAmount = Number(defaultBase) || 0;
+    const now = Date.now();
+    setIsShiftOpen(true);
+    setShiftOpenTime(now);
+    localStorage.setItem('sakesu_shift_open', 'true');
+    localStorage.setItem('sakesu_shift_time', String(now));
+
+    if (baseAmount > 0) {
+      const initialEntry = {
+        amount: baseAmount,
+        reason: 'Fondo Inicial de Caja',
+        time: getChileDateTime(now).hora,
+      };
+      persistCashEntries([initialEntry]);
+    } else {
+      persistCashEntries([]);
+    }
+
+    alert('✅ Caja abierta correctamente. Las ventas del día empiezan en $0.');
+  };
+
+  const handleCloseShift = () => {
+    if (!confirm('¿Deseas imprimir el Informe Z y cerrar el turno de caja?')) return;
+    
+    printZReport();
+
+    setIsShiftOpen(false);
+    localStorage.setItem('sakesu_shift_open', 'false');
+    persistCashEntries([]);
+
+    alert('🏁 Caja cerrada. Presiona "Abrir Caja" cuando inicies la siguiente jornada.');
   };
 
   // Cargar Menú
@@ -152,7 +242,7 @@ export default function GastronomicPOS() {
     }
   };
 
-  // Cargar ventas sin sobreescribir órdenes locales
+  // Cargar ventas
   const fetchSales = async () => {
     if (!supabaseUrl || !supabaseAnonKey) return;
     try {
@@ -241,14 +331,13 @@ export default function GastronomicPOS() {
     }
   };
 
-  // ELIMINAR / ANULAR PEDIDO DEFINITIVAMENTE
+  // Eliminar orden definitivamente
   const handleDeleteOrder = async (order: any) => {
     const orderNum = order.daily_order_number || order.order_number || order.id;
     if (!confirm(`¿Estás seguro de que deseas ELIMINAR y anular la comanda #${orderNum}?`)) return;
 
     const orderKey = String(order.id || orderNum);
 
-    // 1. Registrar en lista de eliminados local
     let deletedKeys: string[] = [];
     try {
       const stored = localStorage.getItem('sakesu_deleted_keys');
@@ -260,7 +349,6 @@ export default function GastronomicPOS() {
       localStorage.setItem('sakesu_deleted_keys', JSON.stringify(deletedKeys));
     }
 
-    // 2. Quitar de la cocina e historial al instante
     const newActive = activeOrders.filter((o) => String(o.id || o.daily_order_number || o.order_number) !== orderKey);
     persistActiveOrders(newActive);
 
@@ -271,7 +359,6 @@ export default function GastronomicPOS() {
       setSelectedHistoryOrder(null);
     }
 
-    // 3. Borrar de la base de datos Supabase
     try {
       if (supabaseUrl && supabaseAnonKey) {
         if (order.id) {
@@ -339,6 +426,11 @@ export default function GastronomicPOS() {
   };
 
   const addToOrder = (product: Product) => {
+    if (!isShiftOpen) {
+      alert('⚠️ La caja está cerrada. Debes abrir caja para tomar pedidos.');
+      return;
+    }
+
     const name = getProductName(product);
     const price = getProductPrice(product);
 
@@ -424,18 +516,9 @@ export default function GastronomicPOS() {
       return;
     }
 
-    const now = new Date();
-    const dia = String(now.getDate()).padStart(2, '0');
-    const mes = String(now.getMonth() + 1).padStart(2, '0');
-    const anio = now.getFullYear();
-    const fecha = `${dia}-${mes}-${anio}`;
-
-    let horas = now.getHours();
-    const minutos = String(now.getMinutes()).padStart(2, '0');
-    const ampm = horas >= 12 ? 'p. m.' : 'a. m.';
-    horas = horas % 12;
-    horas = horas ? horas : 12;
-    const horaFormateada = `${String(horas).padStart(2, '0')}:${minutos} ${ampm}`;
+    // Hora y fecha exacta de creación en formato oficial de Chile
+    const orderTimestamp = order.created_timestamp || (order.created_at ? new Date(order.created_at).getTime() : Date.now());
+    const { fecha, hora: horaFormateada } = getChileDateTime(orderTimestamp);
 
     const orderNum = order.daily_order_number || order.order_number || order.id || '001';
     const items = order.items || [];
@@ -547,6 +630,31 @@ export default function GastronomicPOS() {
     w.document.close();
   };
 
+  // FILTRO: Solo pedidos a partir de la apertura de caja actual
+  const currentShiftSales = isShiftOpen
+    ? salesHistory.filter((s) => {
+        let orderMs = Number(s.created_timestamp);
+        if (!orderMs && s.created_at) orderMs = new Date(s.created_at).getTime();
+        return orderMs >= shiftOpenTime;
+      })
+    : [];
+
+  const totalCashSales = currentShiftSales
+    .filter((s) => (s.payment_method || '').toUpperCase() === 'EFECTIVO')
+    .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
+
+  const totalDebitSales = currentShiftSales
+    .filter((s) => (s.payment_method || '').toUpperCase().includes('DÉBITO') || (s.payment_method || '').toUpperCase().includes('DEBITO') || (s.payment_method || '').toUpperCase().includes('POINT'))
+    .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
+
+  const totalTransferSales = currentShiftSales
+    .filter((s) => (s.payment_method || '').toUpperCase() === 'TRANSFERENCIA')
+    .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
+
+  const totalCashInEntries = cashEntries.reduce((acc, e) => acc + e.amount, 0);
+  const grandTotalSales = totalCashSales + totalDebitSales + totalTransferSales;
+  const totalCashInDrawer = totalCashInEntries + totalCashSales;
+
   const printZReport = () => {
     const w = window.open('', '_blank', 'width=380,height=600');
     if (!w) {
@@ -554,28 +662,7 @@ export default function GastronomicPOS() {
       return;
     }
 
-    const now = new Date();
-    const dia = String(now.getDate()).padStart(2, '0');
-    const mes = String(now.getMonth() + 1).padStart(2, '0');
-    const anio = now.getFullYear();
-    const fecha = `${dia}-${mes}-${anio}`;
-    const hora = now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
-
-    const totalCashSales = salesHistory
-      .filter((s) => (s.payment_method || '').toUpperCase() === 'EFECTIVO')
-      .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
-
-    const totalDebitSales = salesHistory
-      .filter((s) => (s.payment_method || '').toUpperCase().includes('DÉBITO') || (s.payment_method || '').toUpperCase().includes('DEBITO') || (s.payment_method || '').toUpperCase().includes('POINT'))
-      .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
-
-    const totalTransferSales = salesHistory
-      .filter((s) => (s.payment_method || '').toUpperCase() === 'TRANSFERENCIA')
-      .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
-
-    const totalCashInEntries = cashEntries.reduce((acc, e) => acc + e.amount, 0);
-    const grandTotalSales = totalCashSales + totalDebitSales + totalTransferSales;
-    const totalCashInDrawer = totalCashInEntries + totalCashSales;
+    const { fecha, hora } = getChileDateTime(Date.now());
 
     w.document.write(`
       <!DOCTYPE html>
@@ -607,7 +694,7 @@ export default function GastronomicPOS() {
 
         <div style="font-size: 14px; line-height: 1.4;">
           <div>FECHA: ${fecha} &nbsp;&nbsp;HORA: ${hora}</div>
-          <div>CANTIDAD DE PEDIDOS: ${salesHistory.length}</div>
+          <div>CANTIDAD DE PEDIDOS: ${currentShiftSales.length}</div>
         </div>
 
         <div class="divider-dashed"></div>
@@ -666,24 +753,32 @@ export default function GastronomicPOS() {
 
   const handleAddCashEntry = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isShiftOpen) {
+      alert('Abre la caja primero antes de registrar movimientos de efectivo.');
+      return;
+    }
     const val = Number(entryAmount);
     if (!val || val <= 0) return;
 
     const newEntry = {
       amount: val,
       reason: entryReason || 'Fondo Inicial',
-      time: new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }),
+      time: getChileDateTime(Date.now()).hora,
     };
 
-    setCashEntries([...cashEntries, newEntry]);
+    persistCashEntries([...cashEntries, newEntry]);
     setEntryAmount('');
     setEntryReason('Entrada');
     alert(`¡Entrada de $${val.toLocaleString('es-CL')} registrada!`);
   };
 
-  // Creación y envío
+  // Creación de orden
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isShiftOpen) {
+      alert('⚠️ La caja está cerrada. Debes presionar "Abrir Caja" para registrar pedidos.');
+      return;
+    }
     if (orderItems.length === 0) {
       alert('Debes agregar al menos un producto a la comanda.');
       return;
@@ -743,24 +838,7 @@ export default function GastronomicPOS() {
     setIsSubmitting(false);
   };
 
-  // Métricas para pestaña de Caja
-  const totalCashSales = salesHistory
-    .filter((s) => (s.payment_method || '').toUpperCase() === 'EFECTIVO')
-    .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
-
-  const totalDebitSales = salesHistory
-    .filter((s) => (s.payment_method || '').toUpperCase().includes('DÉBITO') || (s.payment_method || '').toUpperCase().includes('DEBITO') || (s.payment_method || '').toUpperCase().includes('POINT'))
-    .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
-
-  const totalTransferSales = salesHistory
-    .filter((s) => (s.payment_method || '').toUpperCase() === 'TRANSFERENCIA')
-    .reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
-
-  const totalCashInEntries = cashEntries.reduce((acc, e) => acc + e.amount, 0);
-  const grandTotalSales = totalCashSales + totalDebitSales + totalTransferSales;
-  const totalCashInDrawer = totalCashInEntries + totalCashSales;
-
-  // Lógica de cronómetro en vivo
+  // Cronómetros en tiempo real
   const getElapsedInfo = (order: any) => {
     let startMs = 0;
     if (order.created_timestamp) {
@@ -808,7 +886,7 @@ export default function GastronomicPOS() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a', color: '#ffffff', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       {/* Header */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', backgroundColor: '#121212', borderBottom: '1px solid #262626' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', backgroundColor: '#121212', borderBottom: '1px solid #262626', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '24px', fontWeight: '900', letterSpacing: '0.5px' }}>
             SAKESU <span style={{ color: '#dc2626' }}>SUSHI</span>
@@ -816,6 +894,55 @@ export default function GastronomicPOS() {
           <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#a3a3a3', fontStyle: 'italic' }}>
             "Cada bocado, una tentación"
           </p>
+        </div>
+
+        {/* Indicador y Botón de Estado de Caja */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {isShiftOpen ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#052e16', border: '1px solid #16a34a', padding: '6px 12px', borderRadius: '8px' }}>
+              <span style={{ fontSize: '12px', color: '#4ade80', fontWeight: 'bold' }}>
+                🟢 Caja Abierta ({shiftOpenTime ? getChileDateTime(shiftOpenTime).hora : 'Hoy'})
+              </span>
+              <button
+                type="button"
+                onClick={handleCloseShift}
+                style={{
+                  padding: '4px 10px',
+                  backgroundColor: '#dc2626',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                }}
+              >
+                Cerrar Caja
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#450a0a', border: '1px solid #ef4444', padding: '6px 12px', borderRadius: '8px' }}>
+              <span style={{ fontSize: '12px', color: '#fca5a5', fontWeight: 'bold' }}>
+                🔴 Caja Cerrada
+              </span>
+              <button
+                type="button"
+                onClick={handleOpenShift}
+                style={{
+                  padding: '4px 10px',
+                  backgroundColor: '#16a34a',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                }}
+              >
+                Abrir Caja
+              </button>
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -904,6 +1031,19 @@ export default function GastronomicPOS() {
       {activeTab === 'pos' && (
         <div style={{ display: 'flex', flexWrap: 'wrap', minHeight: 'calc(100vh - 75px)' }}>
           <div style={{ flex: '1 1 600px', padding: '24px', borderRight: '1px solid #262626' }}>
+            {!isShiftOpen && (
+              <div style={{ backgroundColor: '#450a0a', border: '1px solid #ef4444', color: '#fff', padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>⚠️ La caja está cerrada actualmente. Abre caja para registrar y procesar comandas.</span>
+                <button
+                  type="button"
+                  onClick={handleOpenShift}
+                  style={{ backgroundColor: '#16a34a', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
+                >
+                  🟢 Abrir Caja Ahora
+                </button>
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>Carta de Productos</h2>
               <input
@@ -1100,21 +1240,21 @@ export default function GastronomicPOS() {
 
                 <button
                   type="submit"
-                  disabled={isSubmitting || orderItems.length === 0}
+                  disabled={isSubmitting || orderItems.length === 0 || !isShiftOpen}
                   style={{
                     width: '100%',
                     padding: '12px',
-                    backgroundColor: isSubmitting || orderItems.length === 0 ? '#404040' : '#b91c1c',
+                    backgroundColor: isSubmitting || orderItems.length === 0 || !isShiftOpen ? '#404040' : '#b91c1c',
                     color: '#ffffff',
                     fontWeight: 'bold',
                     fontSize: '14px',
                     border: 'none',
                     borderRadius: '8px',
-                    cursor: isSubmitting || orderItems.length === 0 ? 'not-allowed' : 'pointer',
+                    cursor: isSubmitting || orderItems.length === 0 || !isShiftOpen ? 'not-allowed' : 'pointer',
                     marginTop: '6px',
                   }}
                 >
-                  {isSubmitting ? 'Guardando...' : '🖨️ Confirmar e Imprimir'}
+                  {!isShiftOpen ? '⚠️ Caja Cerrada' : isSubmitting ? 'Guardando...' : '🖨️ Confirmar e Imprimir'}
                 </button>
               </form>
             </div>
@@ -1258,7 +1398,6 @@ export default function GastronomicPOS() {
                     }}
                   >
                     <div>
-                      {/* Cabecera */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #262626', paddingBottom: '10px', marginBottom: '12px' }}>
                         <div>
                           <span style={{ fontSize: '22px', fontWeight: '900', color: '#fff' }}>
@@ -1269,7 +1408,6 @@ export default function GastronomicPOS() {
                           </div>
                         </div>
 
-                        {/* Cronómetro exacto */}
                         <div
                           style={{
                             backgroundColor: elapsed.bg,
@@ -1287,7 +1425,6 @@ export default function GastronomicPOS() {
                         </div>
                       </div>
 
-                      {/* Info Cliente */}
                       <div style={{ fontSize: '13px', color: '#ccc', marginBottom: '12px', lineHeight: 1.4 }}>
                         <div style={{ fontWeight: 'bold', color: '#fff' }}>👤 {order.customer_name || 'Cliente General'}</div>
                         {order.delivery_address && (
@@ -1295,7 +1432,6 @@ export default function GastronomicPOS() {
                         )}
                       </div>
 
-                      {/* Lista de Rolls */}
                       <div style={{ backgroundColor: '#0a0a0a', padding: '10px', borderRadius: '8px', border: '1px solid #262626', marginBottom: '12px' }}>
                         <div style={{ fontSize: '11px', color: '#a3a3a3', fontWeight: 'bold', marginBottom: '6px' }}>PRODUCTOS A PREPARAR:</div>
                         {items.map((it: any, idx: number) => (
@@ -1329,7 +1465,6 @@ export default function GastronomicPOS() {
                       </div>
                     </div>
 
-                    {/* Botones de Acción con botón de ELIMINAR */}
                     <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                       <button
                         type="button"
@@ -1526,11 +1661,47 @@ export default function GastronomicPOS() {
       {/* PESTAÑA: HISTORIAL & CIERRE DE CAJA */}
       {activeTab === 'caja' && (
         <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
+          {/* Banner de estado de caja */}
+          <div style={{ backgroundColor: '#141414', border: '1px solid #262626', borderRadius: '10px', padding: '16px 20px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>Estado de Turno Actual:</span>
+                <span style={{ color: isShiftOpen ? '#22c55e' : '#ef4444' }}>
+                  {isShiftOpen ? '● ABIERTO' : '● CERRADO'}
+                </span>
+              </h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#a3a3a3' }}>
+                {isShiftOpen
+                  ? `Turno iniciado a las: ${shiftOpenTime ? getChileDateTime(shiftOpenTime).hora : '--:--'}`
+                  : 'Caja cerrada. Presiona "Abrir Caja Diaria" para iniciar las ventas en $0.'}
+              </p>
+            </div>
+            <div>
+              {isShiftOpen ? (
+                <button
+                  type="button"
+                  onClick={handleCloseShift}
+                  style={{ padding: '10px 18px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
+                >
+                  🔒 Realizar Cierre de Turno
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleOpenShift}
+                  style={{ padding: '10px 18px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
+                >
+                  🟢 Abrir Caja Diaria
+                </button>
+              )}
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
             <div style={{ backgroundColor: '#141414', padding: '18px', borderRadius: '10px', border: '1px solid #262626' }}>
-              <p style={{ margin: 0, fontSize: '12px', color: '#a3a3a3' }}>Ventas Totales</p>
+              <p style={{ margin: 0, fontSize: '12px', color: '#a3a3a3' }}>Ventas del Turno</p>
               <h3 style={{ margin: '6px 0 0 0', fontSize: '24px', fontWeight: '900', color: '#22c55e' }}>${grandTotalSales.toLocaleString('es-CL')}</h3>
-              <span style={{ fontSize: '11px', color: '#666' }}>{salesHistory.length} órdenes registradas</span>
+              <span style={{ fontSize: '11px', color: '#666' }}>{currentShiftSales.length} órdenes en este turno</span>
             </div>
 
             <div style={{ backgroundColor: '#141414', padding: '18px', borderRadius: '10px', border: '1px solid #262626' }}>
@@ -1555,7 +1726,9 @@ export default function GastronomicPOS() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px' }}>
             <div style={{ backgroundColor: '#141414', padding: '20px', borderRadius: '10px', border: '1px solid #262626' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>Historial Completo de Pedidos</h3>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>
+                  Pedidos del Turno Actual ({currentShiftSales.length})
+                </h3>
                 <button
                   onClick={fetchSales}
                   style={{ padding: '6px 12px', backgroundColor: '#262626', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '12px', cursor: 'pointer' }}
@@ -1578,19 +1751,15 @@ export default function GastronomicPOS() {
                     </tr>
                   </thead>
                   <tbody>
-                    {salesHistory.length === 0 ? (
+                    {currentShiftSales.length === 0 ? (
                       <tr>
                         <td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: '#666' }}>
-                          No hay ventas registradas aún.
+                          No hay ventas registradas en este turno aún.
                         </td>
                       </tr>
                     ) : (
-                      salesHistory.map((s, idx) => {
-                        const timeStr = s.created_timestamp
-                          ? new Date(s.created_timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
-                          : s.created_at
-                          ? new Date(s.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
-                          : '--:--';
+                      currentShiftSales.map((s, idx) => {
+                        const { hora: timeStr } = getChileDateTime(s.created_timestamp || s.created_at);
                         const oNum = s.daily_order_number || s.order_number || s.id;
                         return (
                           <tr key={s.id || idx} style={{ borderBottom: '1px solid #1f1f1f' }}>
@@ -1686,7 +1855,7 @@ export default function GastronomicPOS() {
                     <span style={{ fontWeight: 'bold', color: '#22c55e' }}>${totalCashInDrawer.toLocaleString('es-CL')}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Ventas Totales:</span>
+                    <span>Ventas del Turno:</span>
                     <span style={{ fontWeight: 'bold' }}>${grandTotalSales.toLocaleString('es-CL')}</span>
                   </div>
                 </div>
@@ -1713,7 +1882,7 @@ export default function GastronomicPOS() {
                   Orden #{selectedHistoryOrder.daily_order_number || selectedHistoryOrder.order_number || selectedHistoryOrder.id}
                 </h3>
                 <span style={{ fontSize: '12px', color: '#a3a3a3' }}>
-                  {new Date(selectedHistoryOrder.created_timestamp || selectedHistoryOrder.created_at).toLocaleString('es-CL')}
+                  {getChileDateTime(selectedHistoryOrder.created_timestamp || selectedHistoryOrder.created_at).fecha} {getChileDateTime(selectedHistoryOrder.created_timestamp || selectedHistoryOrder.created_at).hora}
                 </span>
               </div>
               <span style={{ padding: '4px 8px', borderRadius: '6px', fontSize: '12px', backgroundColor: selectedHistoryOrder.order_type === 'DELIVERY' ? '#1e3a8a' : '#14532d', color: '#fff', fontWeight: 'bold' }}>
